@@ -37,6 +37,38 @@ export type BlockedResponse = {
   message: string;
 };
 
+/**
+ * An editable storyboard panel: a preview image plus the student's description.
+ * Students revise these before committing to (slower, costlier) video.
+ */
+export type StoryboardScene = {
+  id: string;
+  /** Short title for the scene (editable). */
+  title: string;
+  /** The student-editable description that drives the image and the video. */
+  description: string;
+  /** Preview image URL, or null in Practice Mode / when hidden. */
+  imageUrl: string | null;
+  /** True when the generated image failed the image safety check. */
+  imageBlocked?: boolean;
+  /** A friendly color theme used to render placeholder panels. */
+  palette: string;
+  /** True when this panel is an offline placeholder rather than a real image. */
+  mock: boolean;
+};
+
+export type StoryboardResponse = {
+  title: string;
+  scenes: StoryboardScene[];
+  mock: boolean;
+};
+
+export type SceneImageResponse = {
+  imageUrl: string | null;
+  imageBlocked?: boolean;
+  mock: boolean;
+};
+
 export type Scene = {
   id: string;
   /** Short, kid-friendly title for the scene. */
@@ -45,6 +77,8 @@ export type Scene = {
   narration: string;
   /** The detailed prompt sent to the video model. */
   prompt: string;
+  /** The approved storyboard image, shown as a poster while the video renders. */
+  imageUrl?: string | null;
   /** Replicate prediction id, or null in mock mode. */
   predictionId: string | null;
   status: "starting" | "processing" | "succeeded" | "failed";

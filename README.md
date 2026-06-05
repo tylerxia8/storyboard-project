@@ -4,10 +4,12 @@ A playful web app where **elementary school children write stories and watch the
 
 ## How it works
 
-1. **Write** — the child types a story in a big, friendly editor.
+1. **Write** — the student types a story in a big, friendly editor.
 2. **Helper Tips** — warm, age-appropriate feedback suggests ways to add description and clarity (powered by OpenAI).
-3. **Make My Movie** — the story is broken into scenes, and each scene becomes a short video clip (powered by Replicate text-to-video).
-4. **Revise & regenerate** — the child edits their story to be more vivid, then makes the movie again to see it improve.
+3. **Make Storyboard** — the story is broken into scenes, and each scene gets a **preview image** plus an editable description (images via Replicate text-to-image, which is fast and cheap to iterate on).
+4. **Revise the storyboard** — the student edits each scene's title/description and **redraws** the image until they're happy with the visuals. This is where the editing-as-play happens.
+5. **Make the Video** — once satisfied, the approved scenes are turned into short video clips (Replicate text-to-video). The approved image shows as a poster while each clip renders.
+6. **Iterate** — the student can go back to the storyboard, refine, and re-render.
 
 ## Practice Mode (no keys needed)
 
@@ -53,16 +55,20 @@ Then open [http://localhost:3000](http://localhost:3000).
 
 ```
 app/
-  page.tsx            # Main writing + movie experience
+  page.tsx               # Main writing + storyboard + movie experience
   components/
-    SceneCard.tsx     # Renders a single movie scene (video or animated placeholder)
+    StoryboardCard.tsx   # Editable storyboard panel (image + description + redraw)
+    SceneCard.tsx        # Renders a single movie scene (video or placeholder)
   api/
-    feedback/route.ts # POST story -> friendly writing tips
-    movie/route.ts    # POST story -> scenes + starts video generation
-    status/route.ts   # GET video generation status (polled by the client)
+    feedback/route.ts    # POST story -> friendly writing tips
+    storyboard/route.ts  # POST story -> scenes + preview images
+    scene-image/route.ts # POST description -> a single redrawn image
+    video/route.ts       # POST approved scenes -> starts video generation
+    status/route.ts      # GET video generation status (polled by the client)
 lib/
-  ai.ts               # OpenAI + Replicate helpers, with offline mock fallbacks
-  types.ts            # Shared types
+  ai.ts                  # OpenAI + Replicate helpers, with offline mock fallbacks
+  safety.ts              # Rating-aware text/image/frame moderation
+  types.ts               # Shared types
 ```
 
 ## Audience modes (content rating)

@@ -1,7 +1,12 @@
 import OpenAI from "openai";
 import Replicate from "replicate";
-import type { FeedbackResponse, Scene, Rating } from "./types";
-import { getGuidelines, moderateVideoFrame } from "./safety";
+import type {
+  FeedbackResponse,
+  Scene,
+  Rating,
+  StoryboardScene,
+} from "./types";
+import { getGuidelines, moderateImageUrl, moderateVideoFrame } from "./safety";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
@@ -10,9 +15,14 @@ const TEXT_MODEL = process.env.OPENAI_TEXT_MODEL || "gpt-4o-mini";
 const VIDEO_MODEL =
   (process.env.REPLICATE_VIDEO_MODEL as `${string}/${string}`) ||
   "wan-video/wan-2.2-t2v-fast";
+// Any text-to-image model on Replicate. Fast + cheap by default for iteration.
+const IMAGE_MODEL =
+  (process.env.REPLICATE_IMAGE_MODEL as `${string}/${string}`) ||
+  "black-forest-labs/flux-schnell";
 
 export const hasTextAI = Boolean(OPENAI_API_KEY);
 export const hasVideoAI = Boolean(REPLICATE_API_TOKEN);
+export const hasImageAI = Boolean(REPLICATE_API_TOKEN);
 
 const PALETTES = [
   "from-sky-400 via-indigo-400 to-purple-500",
@@ -33,6 +43,34 @@ function splitIntoSentences(text: string): string[] {
     .match(/[^.!?]+[.!?]*/g)
     ?.map((s) => s.trim())
     .filter(Boolean) ?? [];
+}
+
+/**
+ * Retries a Replicate call on HTTP 429 (rate limit), honoring the retry-after
+ * header. Low-credit Replicate accounts are throttled to ~6 requests/minute
+ * with a burst of 1, so we also create predictions sequentially.
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  label: string,
+  retries = 4
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err: unknown) {
+      const response = (err as { response?: Response })?.response;
+      const status = response?.status;
+      if (status === 429 && attempt < retries) {
+        const header = response?.headers?.get?.("retry-after");
+        const waitMs = header ? (parseInt(header, 10) + 1) * 1000 : 11_000;
+        console.warn(`${label}: rate limited, retrying in ${waitMs}ms`);
+        await new Promise((r) => setTimeout(r, waitMs));
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 // ----------------------------- Feedback -----------------------------
@@ -215,46 +253,154 @@ function mockScenes(story: string): { title: string; scenes: RawScene[] } {
   return { title: firstWords ? `${firstWords}...` : "My Story Movie", scenes };
 }
 
+// ------------------------- Images / Storyboard -------------------------
+
+function buildVisualPrompt(description: string, rating: Rating): string {
+  const style =
+    rating === "teens"
+      ? "Polished cinematic animated film still, detailed and dynamic, PG-13."
+      : "Bright, colorful, friendly 3D animated children's movie still.";
+  return `${style} Scene: ${description}`;
+}
+
+function buildVideoPrompt(description: string, rating: Rating): string {
+  const style =
+    rating === "teens"
+      ? "Cinematic animated film clip with smooth motion, PG-13."
+      : "Colorful, friendly 3D animated children's movie clip with smooth motion.";
+  return `${style} Scene: ${description}`;
+}
+
+async function generateImage(prompt: string): Promise<string | null> {
+  if (!hasImageAI) return null;
+  try {
+    const replicate = new Replicate({
+      auth: REPLICATE_API_TOKEN,
+      useFileOutput: false,
+    });
+    const output = await withRetry(
+      () =>
+        replicate.run(IMAGE_MODEL, {
+          input: {
+            prompt,
+            aspect_ratio: "16:9",
+            output_format: "jpg",
+            num_outputs: 1,
+          },
+        }),
+      "generateImage"
+    );
+    if (typeof output === "string") return output;
+    if (Array.isArray(output) && output.length > 0) return String(output[0]);
+    return null;
+  } catch (err) {
+    console.error("generateImage failed:", err);
+    return null;
+  }
+}
+
+/** Generates one moderated storyboard image for an (edited) description. */
+export async function generateSceneImage(
+  description: string,
+  rating: Rating = "kids"
+): Promise<{ imageUrl: string | null; imageBlocked?: boolean; mock: boolean }> {
+  if (!hasImageAI) return { imageUrl: null, mock: true };
+  const url = await generateImage(buildVisualPrompt(description, rating));
+  if (!url) return { imageUrl: null, mock: true };
+  const check = await moderateImageUrl(url, rating);
+  if (!check.safe) return { imageUrl: null, imageBlocked: true, mock: false };
+  return { imageUrl: url, mock: false };
+}
+
+/** Builds an editable storyboard (scenes + preview images) from a story. */
+export async function buildStoryboard(
+  story: string,
+  rating: Rating = "kids"
+): Promise<{ title: string; scenes: StoryboardScene[]; mock: boolean }> {
+  const { title, scenes: rawScenes } = await storyToScenes(story, rating);
+
+  // Sequential generation respects low-credit Replicate rate limits (burst 1).
+  const scenes: StoryboardScene[] = [];
+  for (let index = 0; index < rawScenes.length; index++) {
+    const raw = rawScenes[index];
+    const description = raw.narration || raw.prompt;
+    const base: StoryboardScene = {
+      id: `panel-${index + 1}-${Date.now()}`,
+      title: raw.title,
+      description,
+      imageUrl: null,
+      palette: PALETTES[index % PALETTES.length],
+      mock: !hasImageAI,
+    };
+    if (!hasImageAI) {
+      scenes.push(base);
+      continue;
+    }
+    const img = await generateSceneImage(description, rating);
+    scenes.push({
+      ...base,
+      imageUrl: img.imageUrl,
+      imageBlocked: img.imageBlocked,
+      mock: img.mock,
+    });
+  }
+  return { title, scenes, mock: !hasImageAI };
+}
+
 // ----------------------------- Video -----------------------------
 
-/** Starts a video generation for each scene. Returns Scene objects. */
-export async function startScenes(rawScenes: RawScene[]): Promise<Scene[]> {
-  return Promise.all(
-    rawScenes.map(async (raw, index) => {
-      const base: Scene = {
-        id: `scene-${index + 1}-${Date.now()}`,
-        title: raw.title,
-        narration: raw.narration,
-        prompt: raw.prompt,
-        predictionId: null,
-        status: "starting",
-        videoUrl: null,
-        mock: !hasVideoAI,
-        palette: PALETTES[index % PALETTES.length],
-      };
+export type VideoSceneInput = {
+  id?: string;
+  title: string;
+  description: string;
+  palette?: string;
+  imageUrl?: string | null;
+};
 
-      if (!hasVideoAI) {
-        // Offline placeholder: instantly "ready" as an animated scene card.
-        return { ...base, status: "succeeded", mock: true };
-      }
+/** Starts a video generation for each (approved, possibly edited) scene. */
+export async function startScenes(
+  inputs: VideoSceneInput[],
+  rating: Rating = "kids"
+): Promise<Scene[]> {
+  const replicate = hasVideoAI
+    ? new Replicate({ auth: REPLICATE_API_TOKEN })
+    : null;
 
-      try {
-        const replicate = new Replicate({ auth: REPLICATE_API_TOKEN });
-        const prediction = await replicate.predictions.create({
-          model: VIDEO_MODEL,
-          input: { prompt: raw.prompt },
-        });
-        return {
-          ...base,
-          predictionId: prediction.id,
-          status: "processing",
-        };
-      } catch (err) {
-        console.error("startScene failed, using placeholder:", err);
-        return { ...base, status: "succeeded", mock: true };
-      }
-    })
-  );
+  // Sequential creation respects low-credit Replicate rate limits (burst 1).
+  const scenes: Scene[] = [];
+  for (let index = 0; index < inputs.length; index++) {
+    const input = inputs[index];
+    const prompt = buildVideoPrompt(input.description, rating);
+    const base: Scene = {
+      id: input.id || `scene-${index + 1}-${Date.now()}`,
+      title: input.title,
+      narration: input.description,
+      prompt,
+      imageUrl: input.imageUrl ?? null,
+      predictionId: null,
+      status: "starting",
+      videoUrl: null,
+      mock: !hasVideoAI,
+      palette: input.palette || PALETTES[index % PALETTES.length],
+    };
+
+    if (!replicate) {
+      scenes.push({ ...base, status: "succeeded", mock: true });
+      continue;
+    }
+
+    try {
+      const prediction = await withRetry(
+        () => replicate.predictions.create({ model: VIDEO_MODEL, input: { prompt } }),
+        "startScene"
+      );
+      scenes.push({ ...base, predictionId: prediction.id, status: "processing" });
+    } catch (err) {
+      console.error("startScene failed, using placeholder:", err);
+      scenes.push({ ...base, status: "succeeded", mock: true });
+    }
+  }
+  return scenes;
 }
 
 export async function getPredictionStatus(

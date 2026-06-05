@@ -34,16 +34,27 @@ export default function SceneCard({ scene, index }: { scene: Scene; index: numbe
             className={`animate-scene flex h-full w-full items-center justify-center bg-gradient-to-br ${scene.palette} p-4 text-center`}
           >
             {isWorking ? (
-              <div className="flex flex-col items-center gap-3 text-white">
-                <div className="flex gap-1.5">
-                  <span className="h-3 w-3 animate-twinkle rounded-full bg-white" />
-                  <span className="h-3 w-3 animate-twinkle rounded-full bg-white [animation-delay:0.2s]" />
-                  <span className="h-3 w-3 animate-twinkle rounded-full bg-white [animation-delay:0.4s]" />
+              <>
+                {scene.imageUrl && (
+                  // Show the approved storyboard image as a poster while rendering.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={scene.imageUrl}
+                    alt={scene.title}
+                    className="absolute inset-0 h-full w-full object-cover opacity-60"
+                  />
+                )}
+                <div className="relative flex flex-col items-center gap-3 text-white">
+                  <div className="flex gap-1.5">
+                    <span className="h-3 w-3 animate-twinkle rounded-full bg-white" />
+                    <span className="h-3 w-3 animate-twinkle rounded-full bg-white [animation-delay:0.2s]" />
+                    <span className="h-3 w-3 animate-twinkle rounded-full bg-white [animation-delay:0.4s]" />
+                  </div>
+                  <p className="rounded-full bg-black/30 px-3 py-1 text-sm font-medium drop-shadow">
+                    Bringing your scene to life...
+                  </p>
                 </div>
-                <p className="text-sm font-medium drop-shadow">
-                  Drawing your scene...
-                </p>
-              </div>
+              </>
             ) : scene.safetyBlocked ? (
               <div className="flex flex-col items-center gap-2 text-white">
                 <span className="text-3xl">🛡️</span>

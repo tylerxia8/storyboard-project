@@ -343,6 +343,35 @@ async function moderateImageBuffer(
   }
 }
 
+/** Downloads an image URL and runs it through image moderation. */
+export async function moderateImageUrl(
+  imageUrl: string,
+  rating: Rating = "kids"
+): Promise<ModerationResult> {
+  if (!OPENAI_API_KEY) {
+    return { safe: true, categories: ["image_check_skipped"], kidMessage: "" };
+  }
+  try {
+    const res = await fetch(imageUrl, { redirect: "follow" });
+    if (!res.ok) {
+      return {
+        safe: false,
+        categories: ["image_download_error"],
+        kidMessage: SCENE_BLOCK_MESSAGE,
+      };
+    }
+    const bytes = Buffer.from(await res.arrayBuffer());
+    return moderateImageBuffer(bytes, rating);
+  } catch (err) {
+    console.error("Image URL moderation failed:", err);
+    return {
+      safe: false,
+      categories: ["image_check_error"],
+      kidMessage: SCENE_BLOCK_MESSAGE,
+    };
+  }
+}
+
 /**
  * Grabs a frame from a finished video and runs it through image moderation
  * using the policy for the given rating.

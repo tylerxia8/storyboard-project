@@ -7,19 +7,25 @@ import type {
   Rating,
   Scene,
   StatusResponse,
+  StoryboardResponse,
+  StoryboardScene,
 } from "@/lib/types";
 import { RATINGS } from "@/lib/types";
 import SceneCard from "./components/SceneCard";
-
-const STARTER = "";
+import StoryboardCard from "./components/StoryboardCard";
 
 export default function Home() {
-  const [story, setStory] = useState(STARTER);
+  const [story, setStory] = useState("");
   const [rating, setRating] = useState<Rating>("kids");
   const [feedback, setFeedback] = useState<FeedbackResponse | null>(null);
+  const [storyboard, setStoryboard] = useState<StoryboardResponse | null>(null);
   const [movie, setMovie] = useState<MovieResponse | null>(null);
+
   const [loadingFeedback, setLoadingFeedback] = useState(false);
-  const [loadingMovie, setLoadingMovie] = useState(false);
+  const [loadingStoryboard, setLoadingStoryboard] = useState(false);
+  const [loadingVideo, setLoadingVideo] = useState(false);
+  const [redrawing, setRedrawing] = useState<Record<string, boolean>>({});
+
   const [error, setError] = useState<string | null>(null);
   const [safetyMessage, setSafetyMessage] = useState<string | null>(null);
 
@@ -27,7 +33,6 @@ export default function Home() {
   const ratingRef = useRef<Rating>(rating);
   const wordCount = story.trim() ? story.trim().split(/\s+/).length : 0;
 
-  // Persist the chosen audience across reloads.
   useEffect(() => {
     const saved = localStorage.getItem("storyStudioRating");
     if (saved === "teens" || saved === "kids") setRating(saved);
@@ -46,9 +51,13 @@ export default function Home() {
 
   useEffect(() => () => stopPolling(), [stopPolling]);
 
-  async function getFeedback() {
+  function clearBanners() {
     setError(null);
     setSafetyMessage(null);
+  }
+
+  async function getFeedback() {
+    clearBanners();
     setLoadingFeedback(true);
     setFeedback(null);
     try {
@@ -59,10 +68,7 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not get tips.");
-      if (data.blocked) {
-        setSafetyMessage(data.message as string);
-        return;
-      }
+      if (data.blocked) return setSafetyMessage(data.message as string);
       setFeedback(data as FeedbackResponse);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
@@ -71,31 +77,95 @@ export default function Home() {
     }
   }
 
-  async function makeMovie() {
-    setError(null);
-    setSafetyMessage(null);
-    setLoadingMovie(true);
+  async function makeStoryboard() {
+    clearBanners();
+    setLoadingStoryboard(true);
+    setStoryboard(null);
     setMovie(null);
     stopPolling();
     try {
-      const res = await fetch("/api/movie", {
+      const res = await fetch("/api/storyboard", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ story, rating }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not make movie.");
-      if (data.blocked) {
-        setSafetyMessage(data.message as string);
-        return;
-      }
-      const movieData = data as MovieResponse;
+      if (!res.ok) throw new Error(data.error || "Could not make storyboard.");
+      if (data.blocked) return setSafetyMessage(data.message as string);
+      setStoryboard(data as StoryboardResponse);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong.");
+    } finally {
+      setLoadingStoryboard(false);
+    }
+  }
+
+  function updateScene(id: string, patch: Partial<StoryboardScene>) {
+    setStoryboard((prev) =>
+      prev
+        ? {
+            ...prev,
+            scenes: prev.scenes.map((s) => (s.id === id ? { ...s, ...patch } : s)),
+          }
+        : prev
+    );
+  }
+
+  async function redrawScene(scene: StoryboardScene) {
+    clearBanners();
+    setRedrawing((r) => ({ ...r, [scene.id]: true }));
+    try {
+      const res = await fetch("/api/scene-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description: scene.description, rating }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not redraw scene.");
+      if (data.blocked) return setSafetyMessage(data.message as string);
+      updateScene(scene.id, {
+        imageUrl: data.imageUrl,
+        imageBlocked: data.imageBlocked,
+        mock: data.mock,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong.");
+    } finally {
+      setRedrawing((r) => ({ ...r, [scene.id]: false }));
+    }
+  }
+
+  async function createVideo() {
+    if (!storyboard) return;
+    clearBanners();
+    setLoadingVideo(true);
+    setMovie(null);
+    stopPolling();
+    try {
+      const res = await fetch("/api/video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rating,
+          scenes: storyboard.scenes.map((s) => ({
+            id: s.id,
+            title: s.title,
+            description: s.description,
+            palette: s.palette,
+            imageUrl: s.imageUrl,
+          })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not make video.");
+      if (data.blocked) return setSafetyMessage(data.message as string);
+      const movieData = { ...(data as MovieResponse), title: storyboard.title };
       setMovie(movieData);
       startPolling(movieData.scenes);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
-      setLoadingMovie(false);
+      setLoadingVideo(false);
     }
   }
 
@@ -138,6 +208,8 @@ export default function Home() {
     }, 3000);
   }
 
+  const anyRedrawing = Object.values(redrawing).some(Boolean);
+
   return (
     <div className="flex flex-1 flex-col">
       <header className="bg-gradient-to-r from-purple-500 via-fuchsia-500 to-pink-500 px-6 py-5 text-white shadow-md">
@@ -148,7 +220,7 @@ export default function Home() {
               Story Studio
             </h1>
             <p className="text-sm text-white/90">
-              Write a story, then watch it become a movie!
+              Write a story, design your storyboard, then make a movie!
             </p>
           </div>
           <span className="ml-auto hidden items-center gap-1 rounded-full bg-white/20 px-3 py-1 text-sm font-semibold backdrop-blur sm:flex">
@@ -162,9 +234,7 @@ export default function Home() {
         <section className="flex flex-col gap-4">
           <div className="rounded-3xl bg-white p-5 shadow-lg ring-2 ring-purple-100">
             <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-xl font-semibold text-purple-700">
-                ✏️ My Story
-              </h2>
+              <h2 className="text-xl font-semibold text-purple-700">✏️ My Story</h2>
               <span className="rounded-full bg-purple-100 px-3 py-1 text-sm font-medium text-purple-700">
                 {wordCount} words
               </span>
@@ -192,9 +262,7 @@ export default function Home() {
                       <span className="block text-sm font-bold text-purple-700">
                         {r.label}
                       </span>
-                      <span className="block text-xs text-gray-500">
-                        {r.blurb}
-                      </span>
+                      <span className="block text-xs text-gray-500">{r.blurb}</span>
                     </button>
                   );
                 })}
@@ -205,7 +273,7 @@ export default function Home() {
               value={story}
               onChange={(e) => setStory(e.target.value)}
               placeholder="Once upon a time..."
-              className="h-64 w-full resize-none rounded-2xl border-2 border-purple-200 bg-purple-50/40 p-4 text-lg leading-relaxed text-gray-800 outline-none transition focus:border-purple-400 focus:bg-white"
+              className="h-56 w-full resize-none rounded-2xl border-2 border-purple-200 bg-purple-50/40 p-4 text-lg leading-relaxed text-gray-800 outline-none transition focus:border-purple-400 focus:bg-white"
             />
             <div className="mt-4 flex flex-col gap-3 sm:flex-row">
               <button
@@ -216,11 +284,11 @@ export default function Home() {
                 {loadingFeedback ? "Thinking..." : "💡 Helper Tips"}
               </button>
               <button
-                onClick={makeMovie}
-                disabled={loadingMovie || !story.trim()}
+                onClick={makeStoryboard}
+                disabled={loadingStoryboard || !story.trim()}
                 className="flex-[2] rounded-2xl bg-gradient-to-r from-fuchsia-500 to-purple-600 px-5 py-3 text-lg font-bold text-white shadow transition hover:from-fuchsia-400 hover:to-purple-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {loadingMovie ? "Rolling camera..." : "🎥 Make My Movie!"}
+                {loadingStoryboard ? "Sketching..." : "🎨 Make Storyboard"}
               </button>
             </div>
           </div>
@@ -285,60 +353,124 @@ export default function Home() {
           )}
         </section>
 
-        {/* Movie panel */}
+        {/* Storyboard / Movie panel */}
         <section className="flex flex-col gap-4">
           <div className="flex min-h-full flex-col rounded-3xl bg-white/60 p-5 shadow-inner ring-2 ring-purple-100">
-            <h2 className="mb-3 text-xl font-semibold text-purple-700">
-              🍿 My Movie
-            </h2>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-xl font-semibold text-purple-700">
+                {movie ? "🍿 My Movie" : "🎨 My Storyboard"}
+              </h2>
+              {movie && (
+                <button
+                  onClick={() => {
+                    stopPolling();
+                    setMovie(null);
+                  }}
+                  className="rounded-full bg-purple-100 px-3 py-1 text-sm font-semibold text-purple-700 transition hover:bg-purple-200"
+                >
+                  ← Back to storyboard
+                </button>
+              )}
+            </div>
 
-            {!movie && !loadingMovie && (
+            {/* Empty state */}
+            {!storyboard && !movie && !loadingStoryboard && (
               <div className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-center text-gray-400">
                 <span className="animate-bob text-6xl">🎞️</span>
                 <p className="max-w-xs text-lg">
                   Write your story and press{" "}
                   <span className="font-semibold text-purple-500">
-                    Make My Movie!
+                    Make Storyboard
                   </span>{" "}
-                  to see it come to life.
+                  to sketch out your scenes.
                 </p>
               </div>
             )}
 
-            {loadingMovie && (
+            {/* Loading storyboard */}
+            {loadingStoryboard && (
               <div className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-gray-500">
-                <span className="animate-bob text-6xl">🎬</span>
-                <p className="text-lg">Getting your movie ready...</p>
+                <span className="animate-bob text-6xl">🎨</span>
+                <p className="text-lg">Sketching your scenes...</p>
               </div>
             )}
 
-            {movie && (
+            {/* Loading video */}
+            {loadingVideo && (
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-gray-500">
+                <span className="animate-bob text-6xl">🎬</span>
+                <p className="text-lg">Rolling camera on your movie...</p>
+              </div>
+            )}
+
+            {/* Movie phase */}
+            {movie && !loadingVideo && (
               <div className="flex flex-col gap-4">
-                <div className="rounded-2xl bg-gradient-to-r from-purple-100 to-pink-100 p-3 text-center">
-                  <p className="text-xs uppercase tracking-wide text-purple-400">
-                    Now Playing
-                  </p>
-                  <p className="text-xl font-bold text-purple-700">
-                    {movie.title}
-                  </p>
-                </div>
+                {movie.title && (
+                  <div className="rounded-2xl bg-gradient-to-r from-purple-100 to-pink-100 p-3 text-center">
+                    <p className="text-xs uppercase tracking-wide text-purple-400">
+                      Now Playing
+                    </p>
+                    <p className="text-xl font-bold text-purple-700">
+                      {movie.title}
+                    </p>
+                  </div>
+                )}
                 {movie.scenes.map((scene, i) => (
                   <SceneCard key={scene.id} scene={scene} index={i} />
                 ))}
                 <p className="rounded-2xl bg-purple-50 p-3 text-center text-sm text-purple-600">
-                  ✏️ Want to make it even better? Change your story above and press{" "}
-                  <span className="font-semibold">Make My Movie!</span> again.
+                  ✏️ Want changes? Go{" "}
+                  <span className="font-semibold">back to storyboard</span>, edit
+                  your scenes, and make the video again.
                 </p>
+              </div>
+            )}
+
+            {/* Storyboard phase (editable) */}
+            {storyboard && !movie && !loadingVideo && (
+              <div className="flex flex-col gap-4">
+                <div className="rounded-2xl bg-gradient-to-r from-purple-100 to-pink-100 p-3 text-center">
+                  <p className="text-xs uppercase tracking-wide text-purple-400">
+                    Storyboard for
+                  </p>
+                  <p className="text-xl font-bold text-purple-700">
+                    {storyboard.title}
+                  </p>
+                  <p className="mt-1 text-xs text-purple-500">
+                    Edit each scene and redraw until you love it, then make the
+                    video.
+                  </p>
+                </div>
+
+                {storyboard.scenes.map((scene, i) => (
+                  <StoryboardCard
+                    key={scene.id}
+                    scene={scene}
+                    index={i}
+                    redrawing={Boolean(redrawing[scene.id])}
+                    onChange={(patch) => updateScene(scene.id, patch)}
+                    onRedraw={() => redrawScene(scene)}
+                  />
+                ))}
+
+                <button
+                  onClick={createVideo}
+                  disabled={loadingVideo || anyRedrawing}
+                  className="rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 px-5 py-3 text-lg font-bold text-white shadow transition hover:from-emerald-400 hover:to-teal-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  🎬 I&apos;m happy — Make the Video!
+                </button>
               </div>
             )}
           </div>
         </section>
       </main>
 
-      {movie?.mock && (
+      {(storyboard?.mock || movie?.mock) && (
         <footer className="bg-amber-100 px-6 py-2 text-center text-sm text-amber-800">
           🎨 Practice Mode: scenes are colorful placeholders. Add AI keys to
-          generate real videos.
+          generate real images and videos.
         </footer>
       )}
     </div>
