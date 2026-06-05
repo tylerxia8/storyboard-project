@@ -9,10 +9,13 @@ import type {
   StatusResponse,
   StoryboardResponse,
   StoryboardScene,
+  StoryboardVersion,
 } from "@/lib/types";
 import { RATINGS } from "@/lib/types";
 import SceneCard from "./components/SceneCard";
 import StoryboardCard from "./components/StoryboardCard";
+import SpeakButton from "./components/SpeakButton";
+import WritingChecklist from "./components/WritingChecklist";
 
 export default function Home() {
   const [story, setStory] = useState("");
@@ -28,6 +31,9 @@ export default function Home() {
 
   const [error, setError] = useState<string | null>(null);
   const [safetyMessage, setSafetyMessage] = useState<string | null>(null);
+
+  const [versions, setVersions] = useState<StoryboardVersion[]>([]);
+  const [comparing, setComparing] = useState(false);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const ratingRef = useRef<Rating>(rating);
@@ -79,6 +85,22 @@ export default function Home() {
 
   async function makeStoryboard() {
     clearBanners();
+    setComparing(false);
+    // Save the current storyboard as a previous draft before replacing it.
+    if (storyboard) {
+      setVersions((prev) => [
+        ...prev,
+        {
+          id: `v-${Date.now()}`,
+          createdAt: Date.now(),
+          label: `Draft ${prev.length + 1}`,
+          story,
+          rating,
+          title: storyboard.title,
+          scenes: storyboard.scenes,
+        },
+      ]);
+    }
     setLoadingStoryboard(true);
     setStoryboard(null);
     setMovie(null);
@@ -273,11 +295,14 @@ export default function Home() {
         {/* Writing panel */}
         <section className="flex flex-col gap-4">
           <div className="rounded-3xl bg-white p-5 shadow-lg ring-2 ring-purple-100">
-            <div className="mb-2 flex items-center justify-between">
+            <div className="mb-2 flex items-center justify-between gap-2">
               <h2 className="text-xl font-semibold text-purple-700">✏️ My Story</h2>
-              <span className="rounded-full bg-purple-100 px-3 py-1 text-sm font-medium text-purple-700">
-                {wordCount} words
-              </span>
+              <div className="flex items-center gap-2">
+                {story.trim() && <SpeakButton text={story} label="Read aloud" />}
+                <span className="rounded-full bg-purple-100 px-3 py-1 text-sm font-medium text-purple-700">
+                  {wordCount} words
+                </span>
+              </div>
             </div>
 
             <div className="mb-3">
@@ -332,6 +357,8 @@ export default function Home() {
               </button>
             </div>
           </div>
+
+          <WritingChecklist story={story} />
 
           {safetyMessage && (
             <div className="animate-pop flex items-start gap-3 rounded-3xl bg-sky-50 p-5 text-sky-800 shadow ring-2 ring-sky-200">
@@ -396,11 +423,15 @@ export default function Home() {
         {/* Storyboard / Movie panel */}
         <section className="flex flex-col gap-4">
           <div className="flex min-h-full flex-col rounded-3xl bg-white/60 p-5 shadow-inner ring-2 ring-purple-100">
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex items-center justify-between gap-2">
               <h2 className="text-xl font-semibold text-purple-700">
-                {movie ? "🍿 My Movie" : "🎨 My Storyboard"}
+                {movie
+                  ? "🍿 My Movie"
+                  : comparing
+                    ? "📚 Compare Drafts"
+                    : "🎨 My Storyboard"}
               </h2>
-              {movie && (
+              {movie ? (
                 <button
                   onClick={() => {
                     stopPolling();
@@ -410,6 +441,16 @@ export default function Home() {
                 >
                   ← Back to storyboard
                 </button>
+              ) : (
+                storyboard &&
+                versions.length > 0 && (
+                  <button
+                    onClick={() => setComparing((c) => !c)}
+                    className="rounded-full bg-purple-100 px-3 py-1 text-sm font-semibold text-purple-700 transition hover:bg-purple-200"
+                  >
+                    {comparing ? "← Back to editing" : "📚 Compare drafts"}
+                  </button>
+                )
               )}
             </div>
 
@@ -467,8 +508,66 @@ export default function Home() {
               </div>
             )}
 
+            {/* Compare drafts (before / after) */}
+            {comparing && storyboard && !movie && versions.length > 0 && (
+              <div className="flex flex-col gap-3">
+                <p className="rounded-2xl bg-purple-50 p-3 text-center text-sm text-purple-600">
+                  See how your storyboard changed after you revised your story!
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  {[versions[versions.length - 1], {
+                    label: "Now",
+                    title: storyboard.title,
+                    scenes: storyboard.scenes,
+                  }].map((col, ci) => (
+                    <div key={ci} className="flex flex-col gap-2">
+                      <div className="rounded-xl bg-gradient-to-r from-purple-100 to-pink-100 p-2 text-center">
+                        <p className="text-xs uppercase tracking-wide text-purple-400">
+                          {col.label}
+                        </p>
+                        <p className="text-sm font-bold text-purple-700">
+                          {col.title}
+                        </p>
+                      </div>
+                      {col.scenes.map((s, i) => (
+                        <div
+                          key={s.id}
+                          className="rounded-xl bg-white p-2 shadow ring-1 ring-purple-100"
+                        >
+                          <p className="mb-1 truncate text-xs font-semibold text-purple-700">
+                            {i + 1}. {s.title}
+                          </p>
+                          <div className="relative aspect-video w-full overflow-hidden rounded-lg">
+                            {s.imageUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={s.imageUrl}
+                                alt={s.title}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <div
+                                className={`flex h-full w-full items-center justify-center bg-gradient-to-br ${s.palette} p-2 text-center`}
+                              >
+                                <p className="text-[11px] font-semibold leading-tight text-white drop-shadow">
+                                  {s.description}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                          <p className="mt-1 line-clamp-3 text-[11px] text-gray-600">
+                            {s.description}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Storyboard phase (editable) */}
-            {storyboard && !movie && !loadingVideo && (
+            {storyboard && !movie && !loadingVideo && !comparing && (
               <div className="flex flex-col gap-4">
                 <div className="rounded-2xl bg-gradient-to-r from-purple-100 to-pink-100 p-3 text-center">
                   <p className="text-xs uppercase tracking-wide text-purple-400">

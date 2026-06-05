@@ -1,6 +1,7 @@
 "use client";
 
 import type { Scene } from "@/lib/types";
+import SpeakButton from "./SpeakButton";
 
 export default function SceneCard({ scene, index }: { scene: Scene; index: number }) {
   const isReady = scene.status === "succeeded";
@@ -14,6 +15,13 @@ export default function SceneCard({ scene, index }: { scene: Scene; index: numbe
           {index + 1}
         </span>
         <h3 className="text-lg font-semibold text-purple-700">{scene.title}</h3>
+        {scene.narration && (
+          <SpeakButton
+            text={scene.narration}
+            label=""
+            className="ml-auto shrink-0 rounded-full bg-purple-100 px-2.5 py-1 text-sm font-semibold text-purple-700 transition hover:bg-purple-200 active:scale-95"
+          />
+        )}
       </div>
 
       <div className="relative aspect-video w-full overflow-hidden rounded-2xl">

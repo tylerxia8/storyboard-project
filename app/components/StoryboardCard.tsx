@@ -1,6 +1,7 @@
 "use client";
 
 import type { StoryboardScene } from "@/lib/types";
+import SpeakButton from "./SpeakButton";
 
 export default function StoryboardCard({
   scene,
@@ -80,13 +81,16 @@ export default function StoryboardCard({
         className="mt-2 w-full resize-none rounded-xl border-2 border-purple-100 bg-purple-50/40 p-2 text-sm leading-relaxed text-gray-800 outline-none transition focus:border-purple-300 focus:bg-white"
       />
 
-      <button
-        onClick={onRedraw}
-        disabled={redrawing || !scene.description.trim()}
-        className="mt-2 w-full rounded-xl bg-amber-400 px-4 py-2 text-sm font-bold text-amber-950 shadow transition hover:bg-amber-300 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {redrawing ? "Drawing..." : "🔄 Redraw this scene"}
-      </button>
+      <div className="mt-2 flex gap-2">
+        <button
+          onClick={onRedraw}
+          disabled={redrawing || !scene.description.trim()}
+          className="flex-1 rounded-xl bg-amber-400 px-4 py-2 text-sm font-bold text-amber-950 shadow transition hover:bg-amber-300 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {redrawing ? "Drawing..." : "🔄 Redraw this scene"}
+        </button>
+        <SpeakButton text={scene.description} label="" className="shrink-0 rounded-xl bg-purple-100 px-3 py-2 text-sm font-semibold text-purple-700 transition hover:bg-purple-200 active:scale-95" />
+      </div>
     </div>
   );
 }

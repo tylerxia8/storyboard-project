@@ -63,6 +63,17 @@ export type StoryboardResponse = {
   mock: boolean;
 };
 
+/** A saved snapshot of a storyboard draft, for before/after comparison. */
+export type StoryboardVersion = {
+  id: string;
+  createdAt: number;
+  label: string;
+  story: string;
+  rating: Rating;
+  title: string;
+  scenes: StoryboardScene[];
+};
+
 export type SceneImageResponse = {
   imageUrl: string | null;
   imageBlocked?: boolean;
