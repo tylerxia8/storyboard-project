@@ -44,6 +44,14 @@ export default function SceneCard({ scene, index }: { scene: Scene; index: numbe
                   Drawing your scene...
                 </p>
               </div>
+            ) : scene.safetyBlocked ? (
+              <div className="flex flex-col items-center gap-2 text-white">
+                <span className="text-3xl">🛡️</span>
+                <p className="text-sm font-semibold drop-shadow">
+                  We hid this scene to keep your movie kid-friendly. Try
+                  changing that part of your story!
+                </p>
+              </div>
             ) : isFailed ? (
               <p className="text-sm font-semibold text-white drop-shadow">
                 This scene needs another try!

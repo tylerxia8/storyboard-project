@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import Replicate from "replicate";
 import type { FeedbackResponse, Scene } from "./types";
-import { PG_GUIDELINES } from "./safety";
+import { PG_GUIDELINES, moderateVideoFrame } from "./safety";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
@@ -241,7 +241,11 @@ export async function startScenes(rawScenes: RawScene[]): Promise<Scene[]> {
 
 export async function getPredictionStatus(
   predictionId: string
-): Promise<{ status: Scene["status"]; videoUrl: string | null }> {
+): Promise<{
+  status: Scene["status"];
+  videoUrl: string | null;
+  safetyBlocked?: boolean;
+}> {
   if (!hasVideoAI) {
     return { status: "succeeded", videoUrl: null };
   }
@@ -260,6 +264,16 @@ export async function getPredictionStatus(
         : prediction.status === "failed" || prediction.status === "canceled"
           ? "failed"
           : "processing";
+
+    // Final guardrail: PG-check an actual frame of the finished video before
+    // ever showing it to a child. If it fails, hide the scene.
+    if (status === "succeeded" && videoUrl) {
+      const frameCheck = await moderateVideoFrame(videoUrl);
+      if (!frameCheck.safe) {
+        console.warn("Scene hidden by frame check:", frameCheck.categories);
+        return { status: "failed", videoUrl: null, safetyBlocked: true };
+      }
+    }
 
     return { status, videoUrl };
   } catch (err) {

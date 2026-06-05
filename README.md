@@ -72,10 +72,11 @@ Every movie and every piece of writing feedback passes a PG safety check before 
 1. **Strict PG instructions** are injected into every AI prompt (no nudity, profanity, extreme violence, horror, drugs/alcohol, hate, etc. — see `PG_GUIDELINES` in `lib/safety.ts`).
 2. **The child's story is screened first.** If it fails the check, no movie/feedback is produced — instead a gentle "let's keep it kid-friendly" message invites them to try again.
 3. **The AI-generated scene prompts are re-screened** before any text is sent to the video model.
-4. **Two screening layers run together:**
+4. **Two text screening layers run together:**
    - An **always-on local word filter** (works even in Practice Mode with no API keys).
    - The **OpenAI Moderation API** (`omni-moderation-latest`) when an `OPENAI_API_KEY` is present, which catches nuanced sexual, violent, hateful, and self-harm content.
+5. **Finished videos get a frame check.** When a real video clip is ready, the server extracts a frame with a bundled `ffmpeg` binary (`ffmpeg-static`, no system install needed) and runs that image through OpenAI image moderation. If the rendered frame fails, the scene is hidden with a friendly "we hid this scene" message instead of being shown.
 
-The system fails safe: if any layer flags the content, generation is blocked.
+The system fails safe: if any layer flags the content (or a frame can't be verified when a moderation provider is configured), the content is blocked.
 
 > Note: automated checks are strong but not perfect. For classroom use, an adult should still review generated movies before sharing them widely. Choosing a Replicate video model with its own provider-side safety filter adds further protection.

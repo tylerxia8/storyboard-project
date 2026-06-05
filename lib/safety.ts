@@ -1,4 +1,10 @@
 import OpenAI from "openai";
+import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { readFile, unlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import ffmpegPath from "ffmpeg-static";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
@@ -104,4 +110,138 @@ export async function moderateText(text: string): Promise<ModerationResult> {
   }
 }
 
-export { FRIENDLY_BLOCK_MESSAGE };
+// ------------------------- Video frame moderation -------------------------
+
+const SCENE_BLOCK_MESSAGE =
+  "We hid this scene to keep your movie kid-friendly. Try changing that " +
+  "part of your story and make your movie again! \uD83D\uDEE1\uFE0F";
+
+/** Downloads a remote video to a temp file (follows redirects). */
+async function downloadToTemp(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { redirect: "follow" });
+    if (!res.ok || !res.body) return null;
+    const bytes = Buffer.from(await res.arrayBuffer());
+    if (bytes.length === 0) return null;
+    const path = join(tmpdir(), `vid-${randomUUID()}.mp4`);
+    await writeFile(path, bytes);
+    return path;
+  } catch (err) {
+    console.error("Video download failed:", err);
+    return null;
+  }
+}
+
+/**
+ * Extracts a single frame from a video URL using the bundled ffmpeg binary.
+ * The video is downloaded first (more reliable than ffmpeg's HTTP handling),
+ * then a frame is grabbed from the local file. Returns JPEG bytes or null.
+ */
+async function extractVideoFrame(
+  videoUrl: string,
+  atSeconds = 1
+): Promise<Buffer | null> {
+  if (!ffmpegPath) return null;
+
+  const inputPath = await downloadToTemp(videoUrl);
+  if (!inputPath) return null;
+  const outPath = join(tmpdir(), `frame-${randomUUID()}.jpg`);
+
+  const ok = await new Promise<boolean>((resolve) => {
+    const proc = spawn(ffmpegPath as string, [
+      "-y",
+      "-ss",
+      String(atSeconds),
+      "-i",
+      inputPath,
+      "-frames:v",
+      "1",
+      "-q:v",
+      "3",
+      outPath,
+    ]);
+    const timer = setTimeout(() => {
+      proc.kill("SIGKILL");
+      resolve(false);
+    }, 30_000);
+    proc.on("error", () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      resolve(code === 0);
+    });
+  });
+
+  unlink(inputPath).catch(() => {});
+
+  if (!ok) {
+    unlink(outPath).catch(() => {});
+    return null;
+  }
+  try {
+    return await readFile(outPath);
+  } catch {
+    return null;
+  } finally {
+    unlink(outPath).catch(() => {});
+  }
+}
+
+/** Runs OpenAI image moderation on raw JPEG bytes. */
+async function moderateImageBuffer(jpeg: Buffer): Promise<ModerationResult> {
+  if (!OPENAI_API_KEY) {
+    // No image moderation provider available; text-level checks already ran.
+    return { safe: true, categories: ["image_check_skipped"], kidMessage: "" };
+  }
+  try {
+    const client = new OpenAI({ apiKey: OPENAI_API_KEY });
+    const dataUrl = `data:image/jpeg;base64,${jpeg.toString("base64")}`;
+    const result = await client.moderations.create({
+      model: "omni-moderation-latest",
+      input: [{ type: "image_url", image_url: { url: dataUrl } }],
+    });
+    const item = result.results[0];
+    if (item?.flagged) {
+      const categories = Object.entries(item.categories || {})
+        .filter(([, v]) => v)
+        .map(([k]) => k);
+      return { safe: false, categories, kidMessage: SCENE_BLOCK_MESSAGE };
+    }
+    return { safe: true, categories: [], kidMessage: "" };
+  } catch (err) {
+    console.error("Image moderation failed:", err);
+    // Fail safe: if we cannot verify a real rendered frame, block it.
+    return {
+      safe: false,
+      categories: ["image_check_error"],
+      kidMessage: SCENE_BLOCK_MESSAGE,
+    };
+  }
+}
+
+/**
+ * Grabs a frame from a finished video and runs it through image moderation.
+ * Returns safe=true if no frame could be extracted but no provider is set
+ * (nothing to check against); otherwise fails safe on errors.
+ */
+export async function moderateVideoFrame(
+  videoUrl: string
+): Promise<ModerationResult> {
+  const frame = await extractVideoFrame(videoUrl);
+  if (!frame) {
+    if (!OPENAI_API_KEY) {
+      return { safe: true, categories: ["frame_unavailable"], kidMessage: "" };
+    }
+    // We have a moderation provider but couldn't read the frame: fail safe.
+    return {
+      safe: false,
+      categories: ["frame_extract_error"],
+      kidMessage: SCENE_BLOCK_MESSAGE,
+    };
+  }
+  return moderateImageBuffer(frame);
+}
+
+export { FRIENDLY_BLOCK_MESSAGE, SCENE_BLOCK_MESSAGE };

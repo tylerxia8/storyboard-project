@@ -33,6 +33,8 @@ export type Scene = {
   mock: boolean;
   /** A friendly color theme used to render placeholder scenes. */
   palette: string;
+  /** True when a finished frame failed the PG image check and was hidden. */
+  safetyBlocked?: boolean;
 };
 
 export type MovieResponse = {
@@ -44,4 +46,6 @@ export type MovieResponse = {
 export type StatusResponse = {
   status: Scene["status"];
   videoUrl: string | null;
+  /** True when a finished frame failed the PG image check and was hidden. */
+  safetyBlocked?: boolean;
 };

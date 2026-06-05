@@ -99,7 +99,12 @@ export default function Home() {
             if (data.status !== "succeeded" && data.status !== "failed") {
               allDone = false;
             }
-            return { ...s, status: data.status, videoUrl: data.videoUrl };
+            return {
+              ...s,
+              status: data.status,
+              videoUrl: data.videoUrl,
+              safetyBlocked: data.safetyBlocked,
+            };
           } catch {
             allDone = false;
             return s;
