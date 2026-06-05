@@ -312,38 +312,25 @@ export async function generateSceneImage(
   return { imageUrl: url, mock: false };
 }
 
-/** Builds an editable storyboard (scenes + preview images) from a story. */
-export async function buildStoryboard(
+/**
+ * Builds the storyboard scene breakdown WITHOUT images, so the UI can render
+ * the scenes immediately and then stream each preview image in one at a time
+ * (via generateSceneImage / the /api/scene-image route).
+ */
+export async function buildStoryboardScenes(
   story: string,
   rating: Rating = "kids"
 ): Promise<{ title: string; scenes: StoryboardScene[]; mock: boolean }> {
   const { title, scenes: rawScenes } = await storyToScenes(story, rating);
-
-  // Sequential generation respects low-credit Replicate rate limits (burst 1).
-  const scenes: StoryboardScene[] = [];
-  for (let index = 0; index < rawScenes.length; index++) {
-    const raw = rawScenes[index];
-    const description = raw.narration || raw.prompt;
-    const base: StoryboardScene = {
-      id: `panel-${index + 1}-${Date.now()}`,
-      title: raw.title,
-      description,
-      imageUrl: null,
-      palette: PALETTES[index % PALETTES.length],
-      mock: !hasImageAI,
-    };
-    if (!hasImageAI) {
-      scenes.push(base);
-      continue;
-    }
-    const img = await generateSceneImage(description, rating);
-    scenes.push({
-      ...base,
-      imageUrl: img.imageUrl,
-      imageBlocked: img.imageBlocked,
-      mock: img.mock,
-    });
-  }
+  const stamp = Date.now();
+  const scenes: StoryboardScene[] = rawScenes.map((raw, index) => ({
+    id: `panel-${index + 1}-${stamp}`,
+    title: raw.title,
+    description: raw.narration || raw.prompt,
+    imageUrl: null,
+    palette: PALETTES[index % PALETTES.length],
+    mock: !hasImageAI,
+  }));
   return { title, scenes, mock: !hasImageAI };
 }
 

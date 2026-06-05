@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildStoryboard, hasImageAI } from "@/lib/ai";
+import { buildStoryboardScenes, hasImageAI } from "@/lib/ai";
 import { moderateText } from "@/lib/safety";
 import type { Rating, StoryboardResponse } from "@/lib/types";
 
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ blocked: true, message: inputCheck.kidMessage });
     }
 
-    const board = await buildStoryboard(story, rating);
+    const board = await buildStoryboardScenes(story, rating);
 
     // Safety gate on the AI-generated scene descriptions.
     const generatedText = board.scenes

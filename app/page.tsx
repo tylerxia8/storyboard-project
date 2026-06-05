@@ -92,11 +92,51 @@ export default function Home() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not make storyboard.");
       if (data.blocked) return setSafetyMessage(data.message as string);
-      setStoryboard(data as StoryboardResponse);
+      const board = data as StoryboardResponse;
+      setStoryboard(board);
+      // Stream preview images in one scene at a time (kept responsive).
+      void generateInitialImages(board.scenes);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
       setLoadingStoryboard(false);
+    }
+  }
+
+  async function fetchSceneImage(scene: StoryboardScene) {
+    const res = await fetch("/api/scene-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ description: scene.description, rating }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Could not draw scene.");
+    return data as {
+      imageUrl?: string | null;
+      imageBlocked?: boolean;
+      mock?: boolean;
+      blocked?: boolean;
+    };
+  }
+
+  async function generateInitialImages(scenes: StoryboardScene[]) {
+    for (const scene of scenes) {
+      if (scene.mock || scene.imageUrl) continue;
+      setRedrawing((r) => ({ ...r, [scene.id]: true }));
+      try {
+        const data = await fetchSceneImage(scene);
+        if (data.blocked) updateScene(scene.id, { imageBlocked: true });
+        else
+          updateScene(scene.id, {
+            imageUrl: data.imageUrl ?? null,
+            imageBlocked: data.imageBlocked,
+            mock: data.mock,
+          });
+      } catch {
+        // Leave the animated placeholder; the student can redraw manually.
+      } finally {
+        setRedrawing((r) => ({ ...r, [scene.id]: false }));
+      }
     }
   }
 
@@ -115,16 +155,13 @@ export default function Home() {
     clearBanners();
     setRedrawing((r) => ({ ...r, [scene.id]: true }));
     try {
-      const res = await fetch("/api/scene-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ description: scene.description, rating }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not redraw scene.");
-      if (data.blocked) return setSafetyMessage(data.message as string);
+      const data = await fetchSceneImage(scene);
+      if (data.blocked)
+        return setSafetyMessage(
+          (data as { message?: string }).message || "Let's keep it appropriate."
+        );
       updateScene(scene.id, {
-        imageUrl: data.imageUrl,
+        imageUrl: data.imageUrl ?? null,
         imageBlocked: data.imageBlocked,
         mock: data.mock,
       });
@@ -209,6 +246,9 @@ export default function Home() {
   }
 
   const anyRedrawing = Object.values(redrawing).some(Boolean);
+  const imagesReady = storyboard
+    ? storyboard.scenes.filter((s) => s.imageUrl || s.imageBlocked).length
+    : 0;
 
   return (
     <div className="flex flex-1 flex-col">
@@ -437,10 +477,17 @@ export default function Home() {
                   <p className="text-xl font-bold text-purple-700">
                     {storyboard.title}
                   </p>
-                  <p className="mt-1 text-xs text-purple-500">
-                    Edit each scene and redraw until you love it, then make the
-                    video.
-                  </p>
+                  {anyRedrawing ? (
+                    <p className="mt-1 text-xs font-semibold text-purple-500">
+                      🎨 Drawing pictures... {imagesReady} of{" "}
+                      {storyboard.scenes.length}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs text-purple-500">
+                      Edit each scene and redraw until you love it, then make the
+                      video.
+                    </p>
+                  )}
                 </div>
 
                 {storyboard.scenes.map((scene, i) => (
