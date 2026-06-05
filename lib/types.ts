@@ -1,3 +1,23 @@
+/**
+ * Audience rating. "kids" = strict G/PG for ages ~7-11. "teens" = PG-13 for
+ * middle / early high school: allows mild language and moderate cartoon action
+ * (e.g. bugs getting smashed) but still blocks sexual content, gore, etc.
+ */
+export type Rating = "kids" | "teens";
+
+export const RATINGS: { id: Rating; label: string; blurb: string }[] = [
+  {
+    id: "kids",
+    label: "Younger Kids",
+    blurb: "G / PG · ages 7-11",
+  },
+  {
+    id: "teens",
+    label: "Teens",
+    blurb: "PG-13 · middle & early high school",
+  },
+];
+
 export type FeedbackResponse = {
   /** A short, warm sentence celebrating what the child did well. */
   praise: string;

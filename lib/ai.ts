@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import Replicate from "replicate";
-import type { FeedbackResponse, Scene } from "./types";
-import { PG_GUIDELINES, moderateVideoFrame } from "./safety";
+import type { FeedbackResponse, Scene, Rating } from "./types";
+import { getGuidelines, moderateVideoFrame } from "./safety";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
@@ -37,12 +37,22 @@ function splitIntoSentences(text: string): string[] {
 
 // ----------------------------- Feedback -----------------------------
 
-export async function getFeedback(story: string): Promise<FeedbackResponse> {
+export async function getFeedback(
+  story: string,
+  rating: Rating = "kids"
+): Promise<FeedbackResponse> {
   const wordCount = countWords(story);
 
   if (!hasTextAI) {
     return mockFeedback(story, wordCount);
   }
+
+  const audience =
+    rating === "teens"
+      ? "middle and early high school students (ages 11-15). Be encouraging and " +
+        "respectful, not babyish. Use clear language appropriate for teens."
+      : "elementary school children (ages 7-11). Always be warm and positive. " +
+        "Use simple words a child understands. Never be harsh.";
 
   try {
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
@@ -54,14 +64,13 @@ export async function getFeedback(story: string): Promise<FeedbackResponse> {
         {
           role: "system",
           content:
-            "You are a kind, encouraging writing coach for elementary school children (ages 7-11). " +
-            "Always be warm and positive. Use simple words a child understands. Never be harsh. " +
+            `You are a kind, encouraging writing coach for ${audience} ` +
             "Help them make their story more descriptive and clear so it would make a great movie. " +
             'Reply ONLY as JSON with this shape: {"praise": string, "suggestions": string[3], "sparkleWords": string[4]}. ' +
             "praise: one cheerful sentence about what they did well. " +
             "suggestions: 3 short, specific, friendly tips (each under 20 words) to add description or clarity. " +
-            "sparkleWords: 4 fun descriptive words they could use in their story.\n\n" +
-            PG_GUIDELINES,
+            "sparkleWords: exactly 4 fun, vivid descriptive words they could use in their story (this field is required and must contain 4 words).\n\n" +
+            getGuidelines(rating),
         },
         { role: "user", content: `Here is my story:\n\n${story}` },
       ],
@@ -123,13 +132,22 @@ function mockFeedback(story: string, wordCount: number): FeedbackResponse {
 
 type RawScene = { title: string; narration: string; prompt: string };
 
-export async function storyToScenes(story: string): Promise<{
+export async function storyToScenes(
+  story: string,
+  rating: Rating = "kids"
+): Promise<{
   title: string;
   scenes: RawScene[];
 }> {
   if (!hasTextAI) {
     return mockScenes(story);
   }
+
+  const styleNote =
+    rating === "teens"
+      ? "Use a polished, cinematic animated style suitable for teens; moderate " +
+        "stylized action is okay, but keep it within PG-13."
+      : "Use a colorful 3D animated children's movie style.";
 
   try {
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
@@ -141,15 +159,15 @@ export async function storyToScenes(story: string): Promise<{
         {
           role: "system",
           content:
-            "You turn a child's short story into a storyboard for an animated movie. " +
+            "You turn a student's short story into a storyboard for an animated movie. " +
             "Break the story into 2-4 scenes that flow in order. " +
             'Reply ONLY as JSON: {"title": string, "scenes": [{"title": string, "narration": string, "prompt": string}]}. ' +
             "title: a fun movie title for the story. " +
-            "narration: one friendly sentence describing the scene in the child's voice. " +
-            "prompt: a vivid, detailed text-to-video prompt (describe characters, setting, action, mood, lighting, " +
-            "and use a colorful 3D animated children's movie style). Keep it wholesome and age-appropriate. " +
-            "If the story contains anything not suitable for children, gently rewrite that part to be safe and friendly.\n\n" +
-            PG_GUIDELINES,
+            "narration: one sentence describing the scene in the writer's voice. " +
+            "prompt: a vivid, detailed text-to-video prompt (describe characters, setting, action, mood, lighting). " +
+            styleNote +
+            " If the story contains anything not suitable for the audience, gently rewrite that part to be appropriate.\n\n" +
+            getGuidelines(rating),
         },
         { role: "user", content: `Story:\n\n${story}` },
       ],
@@ -240,7 +258,8 @@ export async function startScenes(rawScenes: RawScene[]): Promise<Scene[]> {
 }
 
 export async function getPredictionStatus(
-  predictionId: string
+  predictionId: string,
+  rating: Rating = "kids"
 ): Promise<{
   status: Scene["status"];
   videoUrl: string | null;
@@ -268,7 +287,7 @@ export async function getPredictionStatus(
     // Final guardrail: PG-check an actual frame of the finished video before
     // ever showing it to a child. If it fails, hide the scene.
     if (status === "succeeded" && videoUrl) {
-      const frameCheck = await moderateVideoFrame(videoUrl);
+      const frameCheck = await moderateVideoFrame(videoUrl, rating);
       if (!frameCheck.safe) {
         console.warn("Scene hidden by frame check:", frameCheck.categories);
         return { status: "failed", videoUrl: null, safetyBlocked: true };

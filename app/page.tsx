@@ -1,13 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { FeedbackResponse, MovieResponse, Scene, StatusResponse } from "@/lib/types";
+import type {
+  FeedbackResponse,
+  MovieResponse,
+  Rating,
+  Scene,
+  StatusResponse,
+} from "@/lib/types";
+import { RATINGS } from "@/lib/types";
 import SceneCard from "./components/SceneCard";
 
 const STARTER = "";
 
 export default function Home() {
   const [story, setStory] = useState(STARTER);
+  const [rating, setRating] = useState<Rating>("kids");
   const [feedback, setFeedback] = useState<FeedbackResponse | null>(null);
   const [movie, setMovie] = useState<MovieResponse | null>(null);
   const [loadingFeedback, setLoadingFeedback] = useState(false);
@@ -16,7 +24,18 @@ export default function Home() {
   const [safetyMessage, setSafetyMessage] = useState<string | null>(null);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const ratingRef = useRef<Rating>(rating);
   const wordCount = story.trim() ? story.trim().split(/\s+/).length : 0;
+
+  // Persist the chosen audience across reloads.
+  useEffect(() => {
+    const saved = localStorage.getItem("storyStudioRating");
+    if (saved === "teens" || saved === "kids") setRating(saved);
+  }, []);
+  useEffect(() => {
+    ratingRef.current = rating;
+    localStorage.setItem("storyStudioRating", rating);
+  }, [rating]);
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -36,7 +55,7 @@ export default function Home() {
       const res = await fetch("/api/feedback", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ story }),
+        body: JSON.stringify({ story, rating }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not get tips.");
@@ -62,7 +81,7 @@ export default function Home() {
       const res = await fetch("/api/movie", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ story }),
+        body: JSON.stringify({ story, rating }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not make movie.");
@@ -94,7 +113,9 @@ export default function Home() {
             return s;
           }
           try {
-            const res = await fetch(`/api/status?id=${s.predictionId}`);
+            const res = await fetch(
+              `/api/status?id=${s.predictionId}&rating=${ratingRef.current}`
+            );
             const data = (await res.json()) as StatusResponse;
             if (data.status !== "succeeded" && data.status !== "failed") {
               allDone = false;
@@ -131,7 +152,7 @@ export default function Home() {
             </p>
           </div>
           <span className="ml-auto hidden items-center gap-1 rounded-full bg-white/20 px-3 py-1 text-sm font-semibold backdrop-blur sm:flex">
-            🛡️ Kid-safe · PG checked
+            🛡️ {rating === "teens" ? "PG-13 checked" : "Kid-safe · PG checked"}
           </span>
         </div>
       </header>
@@ -148,6 +169,38 @@ export default function Home() {
                 {wordCount} words
               </span>
             </div>
+
+            <div className="mb-3">
+              <p className="mb-1.5 text-sm font-medium text-gray-500">
+                Who is this movie for?
+              </p>
+              <div className="grid grid-cols-2 gap-2 rounded-2xl bg-purple-50 p-1">
+                {RATINGS.map((r) => {
+                  const active = rating === r.id;
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => setRating(r.id)}
+                      aria-pressed={active}
+                      className={`rounded-xl px-3 py-2 text-left transition ${
+                        active
+                          ? "bg-white shadow ring-2 ring-purple-300"
+                          : "hover:bg-white/60"
+                      }`}
+                    >
+                      <span className="block text-sm font-bold text-purple-700">
+                        {r.label}
+                      </span>
+                      <span className="block text-xs text-gray-500">
+                        {r.blurb}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             <textarea
               value={story}
               onChange={(e) => setStory(e.target.value)}
@@ -176,7 +229,11 @@ export default function Home() {
             <div className="animate-pop flex items-start gap-3 rounded-3xl bg-sky-50 p-5 text-sky-800 shadow ring-2 ring-sky-200">
               <span className="text-2xl">🛟</span>
               <div>
-                <p className="font-semibold text-sky-700">Let&apos;s keep it kid-friendly!</p>
+                <p className="font-semibold text-sky-700">
+                  {rating === "teens"
+                    ? "Let's keep it within PG-13!"
+                    : "Let's keep it kid-friendly!"}
+                </p>
                 <p className="mt-1">{safetyMessage}</p>
               </div>
             </div>

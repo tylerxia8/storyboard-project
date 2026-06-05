@@ -65,9 +65,18 @@ lib/
   types.ts            # Shared types
 ```
 
-## Keeping movies PG (content safety)
+## Audience modes (content rating)
 
-Every movie and every piece of writing feedback passes a PG safety check before anything is generated or shown. There is no nudity, profanity, extreme violence, or other content unsuitable for children. This is enforced with layers of defense:
+Story Studio supports two selectable audiences (chosen at the top of the writing panel; the choice is remembered):
+
+- **Younger Kids — G/PG (ages ~7-11):** the strictest setting. Blocks profanity, slurs, sexual content, violence, scary content, drugs/alcohol, etc.
+- **Teens — PG-13 (middle & early high school, ages ~11-15):** allows mild language and moderate, stylized action/cartoon violence (e.g. a bug getting smashed, fantasy combat, mild peril) while still blocking nudity, sexual content, strong profanity, slurs, **graphic gore**, hard drugs, and self-harm.
+
+The selected rating drives three things: the AI generation guidelines, the text-moderation thresholds, and the video frame-check thresholds. For example, the story *"the knight smashed the giant bug in an epic battle"* is blocked for **Younger Kids** but allowed for **Teens**, while a *gory, bloody* story is blocked for **both**.
+
+## Content safety
+
+Every movie and every piece of writing feedback passes a safety check (at the selected rating) before anything is generated or shown. This is enforced with layers of defense:
 
 1. **Strict PG instructions** are injected into every AI prompt (no nudity, profanity, extreme violence, horror, drugs/alcohol, hate, etc. — see `PG_GUIDELINES` in `lib/safety.ts`).
 2. **The child's story is screened first.** If it fails the check, no movie/feedback is produced — instead a gentle "let's keep it kid-friendly" message invites them to try again.

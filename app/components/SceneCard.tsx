@@ -48,8 +48,8 @@ export default function SceneCard({ scene, index }: { scene: Scene; index: numbe
               <div className="flex flex-col items-center gap-2 text-white">
                 <span className="text-3xl">🛡️</span>
                 <p className="text-sm font-semibold drop-shadow">
-                  We hid this scene to keep your movie kid-friendly. Try
-                  changing that part of your story!
+                  We hid this scene to keep your movie appropriate for the
+                  chosen audience. Try changing that part of your story!
                 </p>
               </div>
             ) : isFailed ? (
