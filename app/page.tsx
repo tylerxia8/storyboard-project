@@ -18,7 +18,6 @@ import StoryboardCard from "./components/StoryboardCard";
 import SpeakButton from "./components/SpeakButton";
 import WritingChecklist from "./components/WritingChecklist";
 import WordBoosters from "./components/WordBoosters";
-import StoryStarters from "./components/StoryStarters";
 import DictateButton from "./components/DictateButton";
 import SavedStories from "./components/SavedStories";
 
@@ -408,14 +407,6 @@ export default function Home() {
                 })}
               </div>
             </div>
-
-            <StoryStarters
-              rating={rating}
-              hasStory={Boolean(story.trim())}
-              onPick={(text) =>
-                setStory((s) => (s.trim() ? `${s.trim()} ${text}` : text))
-              }
-            />
 
             <textarea
               value={story}
