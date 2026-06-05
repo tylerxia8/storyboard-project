@@ -137,17 +137,8 @@ async function downloadToTemp(url: string): Promise<string | null> {
  * The video is downloaded first (more reliable than ffmpeg's HTTP handling),
  * then a frame is grabbed from the local file. Returns JPEG bytes or null.
  */
-async function extractVideoFrame(
-  videoUrl: string,
-  atSeconds = 1
-): Promise<Buffer | null> {
-  if (!ffmpegPath) return null;
-
-  const inputPath = await downloadToTemp(videoUrl);
-  if (!inputPath) return null;
-  const outPath = join(tmpdir(), `frame-${randomUUID()}.jpg`);
-
-  const ok = await new Promise<boolean>((resolve) => {
+function runFfmpeg(inputPath: string, outPath: string, atSeconds: number) {
+  return new Promise<boolean>((resolve) => {
     const proc = spawn(ffmpegPath as string, [
       "-y",
       "-ss",
@@ -164,8 +155,9 @@ async function extractVideoFrame(
       proc.kill("SIGKILL");
       resolve(false);
     }, 30_000);
-    proc.on("error", () => {
+    proc.on("error", (err) => {
       clearTimeout(timer);
+      console.error("ffmpeg spawn error:", err);
       resolve(false);
     });
     proc.on("close", (code) => {
@@ -173,10 +165,33 @@ async function extractVideoFrame(
       resolve(code === 0);
     });
   });
+}
+
+async function extractVideoFrame(
+  videoUrl: string,
+  atSeconds = 1
+): Promise<Buffer | null> {
+  if (!ffmpegPath) {
+    console.error("ffmpeg binary path not resolved (ffmpeg-static).");
+    return null;
+  }
+
+  const inputPath = await downloadToTemp(videoUrl);
+  if (!inputPath) {
+    console.error("Frame extract: video download failed.");
+    return null;
+  }
+  const outPath = join(tmpdir(), `frame-${randomUUID()}.jpg`);
+
+  // Try at the requested time, then fall back to the very first frame for
+  // very short clips where seeking past the end would yield no frame.
+  let ok = await runFfmpeg(inputPath, outPath, atSeconds);
+  if (!ok) ok = await runFfmpeg(inputPath, outPath, 0);
 
   unlink(inputPath).catch(() => {});
 
   if (!ok) {
+    console.error("Frame extract: ffmpeg produced no frame.");
     unlink(outPath).catch(() => {});
     return null;
   }
