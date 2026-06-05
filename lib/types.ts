@@ -73,6 +73,15 @@ export type StoryboardResponse = {
   mock: boolean;
 };
 
+/** A story draft saved to the browser so students can return to it later. */
+export type SavedStory = {
+  id: string;
+  name: string;
+  story: string;
+  rating: Rating;
+  savedAt: number;
+};
+
 /** A saved snapshot of a storyboard draft, for before/after comparison. */
 export type StoryboardVersion = {
   id: string;

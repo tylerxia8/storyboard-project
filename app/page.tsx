@@ -5,6 +5,7 @@ import type {
   FeedbackResponse,
   MovieResponse,
   Rating,
+  SavedStory,
   Scene,
   StatusResponse,
   StoryboardResponse,
@@ -18,6 +19,8 @@ import SpeakButton from "./components/SpeakButton";
 import WritingChecklist from "./components/WritingChecklist";
 import WordBoosters from "./components/WordBoosters";
 import StoryStarters from "./components/StoryStarters";
+import DictateButton from "./components/DictateButton";
+import SavedStories from "./components/SavedStories";
 
 export default function Home() {
   const [story, setStory] = useState("");
@@ -37,18 +40,83 @@ export default function Home() {
   const [versions, setVersions] = useState<StoryboardVersion[]>([]);
   const [comparing, setComparing] = useState(false);
 
+  const [savedStories, setSavedStories] = useState<SavedStory[]>([]);
+  const [savedToast, setSavedToast] = useState(false);
+
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const ratingRef = useRef<Rating>(rating);
+  const skipDraftSave = useRef(true);
   const wordCount = story.trim() ? story.trim().split(/\s+/).length : 0;
 
+  // Restore rating, the in-progress draft, and saved stories on first load.
   useEffect(() => {
-    const saved = localStorage.getItem("storyStudioRating");
-    if (saved === "teens" || saved === "kids") setRating(saved);
+    const savedRating = localStorage.getItem("storyStudioRating");
+    if (savedRating === "teens" || savedRating === "kids") setRating(savedRating);
+    const draft = localStorage.getItem("storyStudioDraft");
+    if (draft) setStory(draft);
+    try {
+      const raw = localStorage.getItem("storyStudioSaved");
+      if (raw) setSavedStories(JSON.parse(raw) as SavedStory[]);
+    } catch {
+      // ignore corrupted storage
+    }
   }, []);
+
   useEffect(() => {
     ratingRef.current = rating;
     localStorage.setItem("storyStudioRating", rating);
   }, [rating]);
+
+  // Auto-save the current draft so work survives a refresh or closed tab.
+  useEffect(() => {
+    if (skipDraftSave.current) {
+      skipDraftSave.current = false;
+      return;
+    }
+    try {
+      localStorage.setItem("storyStudioDraft", story);
+    } catch {
+      // ignore quota errors
+    }
+  }, [story]);
+
+  function persistSaved(next: SavedStory[]) {
+    setSavedStories(next);
+    try {
+      localStorage.setItem("storyStudioSaved", JSON.stringify(next));
+    } catch {
+      // ignore quota errors
+    }
+  }
+
+  function saveStory(name: string) {
+    if (!story.trim()) return;
+    const entry: SavedStory = {
+      id: `s-${Date.now()}`,
+      name,
+      story,
+      rating,
+      savedAt: Date.now(),
+    };
+    persistSaved([entry, ...savedStories]);
+    setSavedToast(true);
+    setTimeout(() => setSavedToast(false), 1800);
+  }
+
+  function loadStory(item: SavedStory) {
+    clearBanners();
+    stopPolling();
+    setStory(item.story);
+    setRating(item.rating);
+    setStoryboard(null);
+    setMovie(null);
+    setVersions([]);
+    setComparing(false);
+  }
+
+  function deleteStory(id: string) {
+    persistSaved(savedStories.filter((s) => s.id !== id));
+  }
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -300,6 +368,11 @@ export default function Home() {
             <div className="mb-2 flex items-center justify-between gap-2">
               <h2 className="text-xl font-semibold text-purple-700">✏️ My Story</h2>
               <div className="flex items-center gap-2">
+                <DictateButton
+                  onText={(t) =>
+                    setStory((s) => (s.trim() ? `${s.trim()} ${t}` : t))
+                  }
+                />
                 {story.trim() && <SpeakButton text={story} label="Read aloud" />}
                 <span className="rounded-full bg-purple-100 px-3 py-1 text-sm font-medium text-purple-700">
                   {wordCount} words
@@ -371,6 +444,20 @@ export default function Home() {
           <WritingChecklist story={story} />
 
           <WordBoosters story={story} onApply={setStory} />
+
+          <SavedStories
+            saved={savedStories}
+            currentStory={story}
+            onSave={saveStory}
+            onLoad={loadStory}
+            onDelete={deleteStory}
+          />
+
+          {savedToast && (
+            <div className="animate-pop rounded-2xl bg-indigo-100 px-4 py-3 text-center font-semibold text-indigo-700 ring-2 ring-indigo-200">
+              💾 Saved! You can open it again anytime.
+            </div>
+          )}
 
           {safetyMessage && (
             <div className="animate-pop flex items-start gap-3 rounded-3xl bg-sky-50 p-5 text-sky-800 shadow ring-2 ring-sky-200">
