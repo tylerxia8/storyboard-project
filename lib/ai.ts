@@ -5,6 +5,7 @@ import type {
   Scene,
   Rating,
   StoryboardScene,
+  WritingTrait,
 } from "./types";
 import { getGuidelines, moderateImageUrl, moderateVideoFrame } from "./safety";
 
@@ -104,10 +105,12 @@ export async function getFeedback(
           content:
             `You are a kind, encouraging writing coach for ${audience} ` +
             "Help them make their story more descriptive and clear so it would make a great movie. " +
-            'Reply ONLY as JSON with this shape: {"praise": string, "suggestions": string[3], "sparkleWords": string[4]}. ' +
+            'Reply ONLY as JSON with this shape: {"praise": string, "suggestions": string[3], "sparkleWords": string[4], "traits": [{"name": string, "stars": number, "tip": string}]}. ' +
             "praise: one cheerful sentence about what they did well. " +
             "suggestions: 3 short, specific, friendly tips (each under 20 words) to add description or clarity. " +
-            "sparkleWords: exactly 4 fun, vivid descriptive words they could use in their story (this field is required and must contain 4 words).\n\n" +
+            "sparkleWords: exactly 4 fun, vivid descriptive words they could use in their story (this field is required and must contain 4 words). " +
+            'traits: rate EXACTLY these 4 writing traits in this order: "Ideas & Details", "Word Choice", "Sentence Flow", "Voice & Feelings". ' +
+            "For each, give stars as a whole number from 1 to 3 (be generous and encouraging; never give 0) and a tip under 15 words for growing that trait.\n\n" +
             getGuidelines(rating),
         },
         { role: "user", content: `Here is my story:\n\n${story}` },
@@ -124,6 +127,15 @@ export async function getFeedback(
       sparkleWords: Array.isArray(parsed.sparkleWords)
         ? parsed.sparkleWords.slice(0, 4).map(String)
         : [],
+      traits: Array.isArray(parsed.traits)
+        ? parsed.traits.slice(0, 4).map(
+            (t: Partial<WritingTrait>): WritingTrait => ({
+              name: String(t.name || "Writing"),
+              stars: Math.max(1, Math.min(3, Math.round(Number(t.stars) || 2))),
+              tip: String(t.tip || ""),
+            })
+          )
+        : [],
       wordCount,
       mock: false,
     };
@@ -131,6 +143,45 @@ export async function getFeedback(
     console.error("getFeedback failed, using mock:", err);
     return mockFeedback(story, wordCount);
   }
+}
+
+function clampStars(n: number): number {
+  return Math.max(1, Math.min(3, n));
+}
+
+function mockTraits(story: string, wordCount: number): WritingTrait[] {
+  const sentences = splitIntoSentences(story);
+  const describing = (
+    story.match(
+      /\b(red|orange|yellow|green|blue|purple|pink|black|white|brown|golden|silver|tiny|small|huge|giant|enormous|tall|short|long|shiny|sparkly|bright|dark|soft|fluffy|cold|hot|warm|loud|quiet|fast|slow|beautiful|scary|magical|gentle|fierce)\b/gi
+    ) || []
+  ).length;
+  const feelings = /\b(happy|sad|scared|afraid|excited|angry|nervous|surprised|worried|proud|brave|lonely|curious|joyful)\b/i.test(
+    story
+  );
+
+  return [
+    {
+      name: "Ideas & Details",
+      stars: clampStars(wordCount >= 60 ? 3 : wordCount >= 25 ? 2 : 1),
+      tip: "Add more about what happens and why it matters.",
+    },
+    {
+      name: "Word Choice",
+      stars: clampStars(describing >= 4 ? 3 : describing >= 1 ? 2 : 1),
+      tip: "Swap plain words for vivid, sparkly ones.",
+    },
+    {
+      name: "Sentence Flow",
+      stars: clampStars(sentences.length >= 4 ? 3 : sentences.length >= 2 ? 2 : 1),
+      tip: "Mix short and long sentences to keep it lively.",
+    },
+    {
+      name: "Voice & Feelings",
+      stars: clampStars(feelings ? 3 : wordCount >= 25 ? 2 : 1),
+      tip: "Tell us how your characters feel inside.",
+    },
+  ];
 }
 
 function mockFeedback(story: string, wordCount: number): FeedbackResponse {
@@ -161,6 +212,7 @@ function mockFeedback(story: string, wordCount: number): FeedbackResponse {
         : "Let's start your amazing story! Type your first sentence above.",
     suggestions: suggestions.slice(0, 3),
     sparkleWords: ["sparkling", "enormous", "whispered", "suddenly"],
+    traits: mockTraits(story, wordCount),
     wordCount,
     mock: true,
   };

@@ -18,6 +18,14 @@ export const RATINGS: { id: Rating; label: string; blurb: string }[] = [
   },
 ];
 
+/** One of the writing traits we coach on, with a 1-3 star rating and a tip. */
+export type WritingTrait = {
+  name: string;
+  /** 1-3 stars, so feedback feels like growth, never failure. */
+  stars: number;
+  tip: string;
+};
+
 export type FeedbackResponse = {
   /** A short, warm sentence celebrating what the child did well. */
   praise: string;
@@ -25,6 +33,8 @@ export type FeedbackResponse = {
   suggestions: string[];
   /** A couple of "magic words" the child could sprinkle in. */
   sparkleWords: string[];
+  /** Per-trait ratings (Ideas, Word Choice, etc.) to make feedback teachable. */
+  traits: WritingTrait[];
   wordCount: number;
   /** True when produced by the offline mock instead of a real AI call. */
   mock: boolean;

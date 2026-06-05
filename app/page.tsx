@@ -16,6 +16,8 @@ import SceneCard from "./components/SceneCard";
 import StoryboardCard from "./components/StoryboardCard";
 import SpeakButton from "./components/SpeakButton";
 import WritingChecklist from "./components/WritingChecklist";
+import WordBoosters from "./components/WordBoosters";
+import StoryStarters from "./components/StoryStarters";
 
 export default function Home() {
   const [story, setStory] = useState("");
@@ -334,6 +336,14 @@ export default function Home() {
               </div>
             </div>
 
+            <StoryStarters
+              rating={rating}
+              hasStory={Boolean(story.trim())}
+              onPick={(text) =>
+                setStory((s) => (s.trim() ? `${s.trim()} ${text}` : text))
+              }
+            />
+
             <textarea
               value={story}
               onChange={(e) => setStory(e.target.value)}
@@ -359,6 +369,8 @@ export default function Home() {
           </div>
 
           <WritingChecklist story={story} />
+
+          <WordBoosters story={story} onApply={setStory} />
 
           {safetyMessage && (
             <div className="animate-pop flex items-start gap-3 rounded-3xl bg-sky-50 p-5 text-sky-800 shadow ring-2 ring-sky-200">
@@ -388,6 +400,41 @@ export default function Home() {
               <p className="mb-3 rounded-2xl bg-green-50 p-3 text-green-800 ring-1 ring-green-100">
                 🌟 {feedback.praise}
               </p>
+
+              {feedback.traits.length > 0 && (
+                <div className="mb-4">
+                  <p className="mb-2 text-sm font-medium text-gray-500">
+                    Your writing powers:
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {feedback.traits.map((t) => (
+                      <div
+                        key={t.name}
+                        className="rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-100"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-bold text-amber-800">
+                            {t.name}
+                          </span>
+                          <span
+                            className="text-sm"
+                            aria-label={`${t.stars} out of 3 stars`}
+                          >
+                            {"⭐".repeat(t.stars)}
+                            <span className="opacity-30">
+                              {"☆".repeat(3 - t.stars)}
+                            </span>
+                          </span>
+                        </div>
+                        {t.tip && (
+                          <p className="mt-1 text-xs text-amber-700">{t.tip}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <ul className="space-y-2">
                 {feedback.suggestions.map((s, i) => (
                   <li
