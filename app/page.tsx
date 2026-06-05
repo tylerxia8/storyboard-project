@@ -13,6 +13,7 @@ export default function Home() {
   const [loadingFeedback, setLoadingFeedback] = useState(false);
   const [loadingMovie, setLoadingMovie] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [safetyMessage, setSafetyMessage] = useState<string | null>(null);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const wordCount = story.trim() ? story.trim().split(/\s+/).length : 0;
@@ -28,6 +29,7 @@ export default function Home() {
 
   async function getFeedback() {
     setError(null);
+    setSafetyMessage(null);
     setLoadingFeedback(true);
     setFeedback(null);
     try {
@@ -38,6 +40,10 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not get tips.");
+      if (data.blocked) {
+        setSafetyMessage(data.message as string);
+        return;
+      }
       setFeedback(data as FeedbackResponse);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
@@ -48,6 +54,7 @@ export default function Home() {
 
   async function makeMovie() {
     setError(null);
+    setSafetyMessage(null);
     setLoadingMovie(true);
     setMovie(null);
     stopPolling();
@@ -59,6 +66,10 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not make movie.");
+      if (data.blocked) {
+        setSafetyMessage(data.message as string);
+        return;
+      }
       const movieData = data as MovieResponse;
       setMovie(movieData);
       startPolling(movieData.scenes);
@@ -114,6 +125,9 @@ export default function Home() {
               Write a story, then watch it become a movie!
             </p>
           </div>
+          <span className="ml-auto hidden items-center gap-1 rounded-full bg-white/20 px-3 py-1 text-sm font-semibold backdrop-blur sm:flex">
+            🛡️ Kid-safe · PG checked
+          </span>
         </div>
       </header>
 
@@ -152,6 +166,16 @@ export default function Home() {
               </button>
             </div>
           </div>
+
+          {safetyMessage && (
+            <div className="animate-pop flex items-start gap-3 rounded-3xl bg-sky-50 p-5 text-sky-800 shadow ring-2 ring-sky-200">
+              <span className="text-2xl">🛟</span>
+              <div>
+                <p className="font-semibold text-sky-700">Let&apos;s keep it kid-friendly!</p>
+                <p className="mt-1">{safetyMessage}</p>
+              </div>
+            </div>
+          )}
 
           {error && (
             <div className="rounded-2xl bg-rose-100 px-4 py-3 text-rose-700 ring-2 ring-rose-200">

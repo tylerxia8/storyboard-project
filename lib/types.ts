@@ -10,6 +10,13 @@ export type FeedbackResponse = {
   mock: boolean;
 };
 
+/** Returned when content fails the PG safety check. */
+export type BlockedResponse = {
+  blocked: true;
+  /** A gentle, kid-friendly explanation. */
+  message: string;
+};
+
 export type Scene = {
   id: string;
   /** Short, kid-friendly title for the scene. */

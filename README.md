@@ -65,6 +65,17 @@ lib/
   types.ts            # Shared types
 ```
 
-## Safety note
+## Keeping movies PG (content safety)
 
-All prompts instruct the AI to stay wholesome, positive, and age-appropriate for children ages 7–11. Review generated content before sharing it with students.
+Every movie and every piece of writing feedback passes a PG safety check before anything is generated or shown. There is no nudity, profanity, extreme violence, or other content unsuitable for children. This is enforced with layers of defense:
+
+1. **Strict PG instructions** are injected into every AI prompt (no nudity, profanity, extreme violence, horror, drugs/alcohol, hate, etc. — see `PG_GUIDELINES` in `lib/safety.ts`).
+2. **The child's story is screened first.** If it fails the check, no movie/feedback is produced — instead a gentle "let's keep it kid-friendly" message invites them to try again.
+3. **The AI-generated scene prompts are re-screened** before any text is sent to the video model.
+4. **Two screening layers run together:**
+   - An **always-on local word filter** (works even in Practice Mode with no API keys).
+   - The **OpenAI Moderation API** (`omni-moderation-latest`) when an `OPENAI_API_KEY` is present, which catches nuanced sexual, violent, hateful, and self-harm content.
+
+The system fails safe: if any layer flags the content, generation is blocked.
+
+> Note: automated checks are strong but not perfect. For classroom use, an adult should still review generated movies before sharing them widely. Choosing a Replicate video model with its own provider-side safety filter adds further protection.

@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import Replicate from "replicate";
 import type { FeedbackResponse, Scene } from "./types";
+import { PG_GUIDELINES } from "./safety";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
@@ -59,7 +60,8 @@ export async function getFeedback(story: string): Promise<FeedbackResponse> {
             'Reply ONLY as JSON with this shape: {"praise": string, "suggestions": string[3], "sparkleWords": string[4]}. ' +
             "praise: one cheerful sentence about what they did well. " +
             "suggestions: 3 short, specific, friendly tips (each under 20 words) to add description or clarity. " +
-            "sparkleWords: 4 fun descriptive words they could use in their story.",
+            "sparkleWords: 4 fun descriptive words they could use in their story.\n\n" +
+            PG_GUIDELINES,
         },
         { role: "user", content: `Here is my story:\n\n${story}` },
       ],
@@ -145,7 +147,9 @@ export async function storyToScenes(story: string): Promise<{
             "title: a fun movie title for the story. " +
             "narration: one friendly sentence describing the scene in the child's voice. " +
             "prompt: a vivid, detailed text-to-video prompt (describe characters, setting, action, mood, lighting, " +
-            "and use a colorful 3D animated children's movie style). Keep it wholesome and age-appropriate.",
+            "and use a colorful 3D animated children's movie style). Keep it wholesome and age-appropriate. " +
+            "If the story contains anything not suitable for children, gently rewrite that part to be safe and friendly.\n\n" +
+            PG_GUIDELINES,
         },
         { role: "user", content: `Story:\n\n${story}` },
       ],
