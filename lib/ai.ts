@@ -375,7 +375,9 @@ function buildVisualPrompt(
       ? "Polished cinematic animated film still, detailed and dynamic, PG-13."
       : "Bright, colorful, friendly 3D animated children's movie still.";
   const preamble = styleGuidePreamble(styleGuide) || fallback;
-  return `${preamble} This scene: ${description}`;
+  // Lead with this scene's own action so each panel is a distinct picture,
+  // then the shared style/character preamble keeps them on-model.
+  return `Scene: ${description}. ${preamble}`;
 }
 
 function buildVideoPrompt(
@@ -388,29 +390,28 @@ function buildVideoPrompt(
       ? "Cinematic animated film clip with smooth motion, PG-13."
       : "Colorful, friendly 3D animated children's movie clip with smooth motion.";
   const preamble = styleGuidePreamble(styleGuide) || fallback;
-  return `${preamble} This scene: ${description}`;
+  return `Scene: ${description}. ${preamble}`;
 }
 
-async function generateImage(
-  prompt: string,
-  seed?: number
-): Promise<string | null> {
+async function generateImage(prompt: string): Promise<string | null> {
   if (!hasImageAI) return null;
   try {
     const replicate = new Replicate({
       auth: REPLICATE_API_TOKEN,
       useFileOutput: false,
     });
-    const input: Record<string, unknown> = {
-      prompt,
-      aspect_ratio: "16:9",
-      output_format: "jpg",
-      num_outputs: 1,
-    };
-    // Reusing one seed across scenes anchors a shared look/palette.
-    if (typeof seed === "number") input.seed = seed;
+    // No fixed seed: a fresh seed each time gives each scene its own
+    // composition, while the prompt keeps characters and style consistent.
     const output = await withRetry(
-      () => replicate.run(IMAGE_MODEL, { input }),
+      () =>
+        replicate.run(IMAGE_MODEL, {
+          input: {
+            prompt,
+            aspect_ratio: "16:9",
+            output_format: "jpg",
+            num_outputs: 1,
+          },
+        }),
       "generateImage"
     );
     if (typeof output === "string") return output;
@@ -429,10 +430,7 @@ export async function generateSceneImage(
   styleGuide?: StyleGuide
 ): Promise<{ imageUrl: string | null; imageBlocked?: boolean; mock: boolean }> {
   if (!hasImageAI) return { imageUrl: null, mock: true };
-  const url = await generateImage(
-    buildVisualPrompt(description, rating, styleGuide),
-    styleGuide?.seed
-  );
+  const url = await generateImage(buildVisualPrompt(description, rating, styleGuide));
   if (!url) return { imageUrl: null, mock: true };
   const check = await moderateImageUrl(url, rating);
   if (!check.safe) return { imageUrl: null, imageBlocked: true, mock: false };
@@ -456,12 +454,7 @@ export async function buildStoryboardScenes(
   const { title, artStyle, characters, scenes: rawScenes } =
     await storyToScenes(story, rating);
   const stamp = Date.now();
-  const styleGuide: StyleGuide = {
-    artStyle,
-    characters,
-    // One stable seed for the whole storyboard keeps every scene on-style.
-    seed: Math.floor(Math.random() * 1_000_000_000),
-  };
+  const styleGuide: StyleGuide = { artStyle, characters };
   const scenes: StoryboardScene[] = rawScenes.map((raw, index) => ({
     id: `panel-${index + 1}-${stamp}`,
     title: raw.title,

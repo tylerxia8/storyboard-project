@@ -83,8 +83,6 @@ export type StyleGuide = {
   /** One canonical art-style sentence used for every scene. */
   artStyle: string;
   characters: StyleCharacter[];
-  /** Stable image seed so all scenes share the same visual DNA. */
-  seed: number;
 };
 
 export type StoryboardResponse = {
