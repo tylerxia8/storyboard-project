@@ -28,7 +28,6 @@ export type WritingTrait = {
 
 /** Animation styles a student can pick to lock the look of the whole movie. */
 export type AnimationStyleId =
-  | "auto"
   | "pixar3d"
   | "cartoon2d"
   | "storybook"
@@ -44,12 +43,6 @@ export const ANIMATION_STYLES: {
   /** The canonical art-style sentence injected into every scene prompt. */
   prompt: string;
 }[] = [
-  {
-    id: "auto",
-    label: "Surprise Me",
-    emoji: "🎲",
-    prompt: "",
-  },
   {
     id: "pixar3d",
     label: "3D Movie",

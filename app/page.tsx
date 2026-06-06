@@ -26,7 +26,7 @@ import SavedStories from "./components/SavedStories";
 export default function Home() {
   const [story, setStory] = useState("");
   const [rating, setRating] = useState<Rating>("kids");
-  const [styleId, setStyleId] = useState<AnimationStyleId>("auto");
+  const [styleId, setStyleId] = useState<AnimationStyleId>("pixar3d");
   const [feedback, setFeedback] = useState<FeedbackResponse | null>(null);
   const [storyboard, setStoryboard] = useState<StoryboardResponse | null>(null);
   const [movie, setMovie] = useState<MovieResponse | null>(null);
@@ -447,7 +447,7 @@ export default function Home() {
                       type="button"
                       onClick={() => setStyleId(s.id)}
                       aria-pressed={active}
-                      title={s.prompt || "Let the AI pick a style for you"}
+                      title={s.prompt}
                       className={`rounded-full px-3 py-1.5 text-sm font-semibold transition active:scale-95 ${
                         active
                           ? "bg-gradient-to-r from-fuchsia-500 to-purple-600 text-white shadow"
