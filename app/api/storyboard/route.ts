@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildStoryboardScenes, hasImageAI } from "@/lib/ai";
 import { moderateText } from "@/lib/safety";
-import type { Rating, StoryboardResponse } from "@/lib/types";
+import {
+  ANIMATION_STYLES,
+  type Rating,
+  type StoryboardResponse,
+} from "@/lib/types";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
-    const { story, rating: rawRating } = await req.json();
+    const { story, rating: rawRating, styleId } = await req.json();
     if (typeof story !== "string" || story.trim().length === 0) {
       return NextResponse.json(
         { error: "Write a little story first, then make your storyboard!" },
@@ -15,6 +19,9 @@ export async function POST(req: NextRequest) {
       );
     }
     const rating: Rating = rawRating === "teens" ? "teens" : "kids";
+    // Resolve the student's chosen animation style (empty = let the AI decide).
+    const stylePrompt =
+      ANIMATION_STYLES.find((s) => s.id === styleId)?.prompt || undefined;
 
     // Safety gate on the student's story before doing anything.
     const inputCheck = await moderateText(story, rating);
@@ -23,7 +30,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ blocked: true, message: inputCheck.kidMessage });
     }
 
-    const board = await buildStoryboardScenes(story, rating);
+    const board = await buildStoryboardScenes(story, rating, stylePrompt);
 
     // Safety gate on the AI-generated scene descriptions.
     const generatedText = board.scenes

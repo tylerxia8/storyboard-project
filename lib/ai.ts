@@ -250,14 +250,16 @@ function defaultArtStyle(rating: Rating): string {
 
 export async function storyToScenes(
   story: string,
-  rating: Rating = "kids"
+  rating: Rating = "kids",
+  stylePrompt?: string
 ): Promise<SceneBreakdown> {
   if (!hasTextAI) {
-    return mockScenes(story, rating);
+    return mockScenes(story, rating, stylePrompt);
   }
 
-  const styleNote =
-    rating === "teens"
+  const styleNote = stylePrompt
+    ? `Use this EXACT art style for every scene: ${stylePrompt}.`
+    : rating === "teens"
       ? "Use a polished, cinematic animated style suitable for teens; moderate " +
         "stylized action is okay, but keep it within PG-13."
       : "Use a colorful 3D animated children's movie style.";
@@ -312,8 +314,9 @@ export async function storyToScenes(
       : [];
     const adjustedForSafety = parsed.adjustedForSafety === true;
     return {
+      // A student-picked style always wins so the whole movie matches it.
       title: String(parsed.title || "My Story Movie"),
-      artStyle: String(parsed.artStyle || defaultArtStyle(rating)),
+      artStyle: stylePrompt || String(parsed.artStyle || defaultArtStyle(rating)),
       characters,
       scenes,
       adjustedForSafety,
@@ -325,7 +328,11 @@ export async function storyToScenes(
   }
 }
 
-function mockScenes(story: string, rating: Rating): SceneBreakdown {
+function mockScenes(
+  story: string,
+  rating: Rating,
+  stylePrompt?: string
+): SceneBreakdown {
   const sentences = splitIntoSentences(story);
   const chunks =
     sentences.length === 0
@@ -349,7 +356,7 @@ function mockScenes(story: string, rating: Rating): SceneBreakdown {
   const firstWords = chunks[0].split(" ").slice(0, 4).join(" ");
   return {
     title: firstWords ? `${firstWords}...` : "My Story Movie",
-    artStyle: defaultArtStyle(rating),
+    artStyle: stylePrompt || defaultArtStyle(rating),
     characters: [],
     scenes,
     adjustedForSafety: false,
@@ -456,7 +463,8 @@ export async function generateSceneImage(
  */
 export async function buildStoryboardScenes(
   story: string,
-  rating: Rating = "kids"
+  rating: Rating = "kids",
+  stylePrompt?: string
 ): Promise<{
   title: string;
   scenes: StoryboardScene[];
@@ -472,7 +480,7 @@ export async function buildStoryboardScenes(
     scenes: rawScenes,
     adjustedForSafety,
     safetyNote,
-  } = await storyToScenes(story, rating);
+  } = await storyToScenes(story, rating, stylePrompt);
   const stamp = Date.now();
   const styleGuide: StyleGuide = { artStyle, characters };
   const scenes: StoryboardScene[] = rawScenes.map((raw, index) => ({

@@ -26,6 +26,81 @@ export type WritingTrait = {
   tip: string;
 };
 
+/** Animation styles a student can pick to lock the look of the whole movie. */
+export type AnimationStyleId =
+  | "auto"
+  | "pixar3d"
+  | "cartoon2d"
+  | "storybook"
+  | "anime"
+  | "claymation"
+  | "comic"
+  | "pixel";
+
+export const ANIMATION_STYLES: {
+  id: AnimationStyleId;
+  label: string;
+  emoji: string;
+  /** The canonical art-style sentence injected into every scene prompt. */
+  prompt: string;
+}[] = [
+  {
+    id: "auto",
+    label: "Surprise Me",
+    emoji: "🎲",
+    prompt: "",
+  },
+  {
+    id: "pixar3d",
+    label: "3D Movie",
+    emoji: "🎬",
+    prompt:
+      "bright, colorful 3D animated movie style like a modern animated feature film, soft rounded shapes, smooth shading, warm cinematic lighting",
+  },
+  {
+    id: "cartoon2d",
+    label: "2D Cartoon",
+    emoji: "📺",
+    prompt:
+      "flat 2D cartoon animation, bold clean outlines, bright saturated colors, simple playful shapes, Saturday-morning cartoon style",
+  },
+  {
+    id: "storybook",
+    label: "Storybook",
+    emoji: "📖",
+    prompt:
+      "soft watercolor storybook illustration, gentle textured brush strokes, warm pastel colors, hand-painted children's picture-book style",
+  },
+  {
+    id: "anime",
+    label: "Anime",
+    emoji: "🌸",
+    prompt:
+      "Japanese anime style, expressive characters, cel shading, dynamic composition, vibrant colors, detailed backgrounds",
+  },
+  {
+    id: "claymation",
+    label: "Clay",
+    emoji: "🧱",
+    prompt:
+      "claymation stop-motion style, sculpted modeling-clay characters, tactile handmade textures, soft studio lighting",
+  },
+  {
+    id: "comic",
+    label: "Comic Book",
+    emoji: "💥",
+    prompt:
+      "comic book illustration style, bold ink outlines, halftone shading, dynamic panels, vivid pop-art colors",
+  },
+  {
+    id: "pixel",
+    label: "Pixel Art",
+    emoji: "👾",
+    prompt:
+      "retro pixel-art style, 16-bit video game look, crisp pixels, bright limited color palette",
+  },
+];
+
 export type FeedbackResponse = {
   /** A short, warm sentence celebrating what the child did well. */
   praise: string;

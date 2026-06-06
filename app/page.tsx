@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
+  AnimationStyleId,
   FeedbackResponse,
   MovieResponse,
   Rating,
@@ -13,7 +14,7 @@ import type {
   StoryboardVersion,
   StyleGuide,
 } from "@/lib/types";
-import { RATINGS } from "@/lib/types";
+import { ANIMATION_STYLES, RATINGS } from "@/lib/types";
 import SceneCard from "./components/SceneCard";
 import StoryboardCard from "./components/StoryboardCard";
 import SpeakButton from "./components/SpeakButton";
@@ -25,6 +26,7 @@ import SavedStories from "./components/SavedStories";
 export default function Home() {
   const [story, setStory] = useState("");
   const [rating, setRating] = useState<Rating>("kids");
+  const [styleId, setStyleId] = useState<AnimationStyleId>("auto");
   const [feedback, setFeedback] = useState<FeedbackResponse | null>(null);
   const [storyboard, setStoryboard] = useState<StoryboardResponse | null>(null);
   const [movie, setMovie] = useState<MovieResponse | null>(null);
@@ -53,6 +55,10 @@ export default function Home() {
   useEffect(() => {
     const savedRating = localStorage.getItem("storyStudioRating");
     if (savedRating === "teens" || savedRating === "kids") setRating(savedRating);
+    const savedStyle = localStorage.getItem("storyStudioStyle");
+    if (savedStyle && ANIMATION_STYLES.some((s) => s.id === savedStyle)) {
+      setStyleId(savedStyle as AnimationStyleId);
+    }
     const draft = localStorage.getItem("storyStudioDraft");
     if (draft) setStory(draft);
     try {
@@ -67,6 +73,10 @@ export default function Home() {
     ratingRef.current = rating;
     localStorage.setItem("storyStudioRating", rating);
   }, [rating]);
+
+  useEffect(() => {
+    localStorage.setItem("storyStudioStyle", styleId);
+  }, [styleId]);
 
   // Auto-save the current draft so work survives a refresh or closed tab.
   useEffect(() => {
@@ -181,7 +191,7 @@ export default function Home() {
       const res = await fetch("/api/storyboard", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ story, rating }),
+        body: JSON.stringify({ story, rating, styleId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not make storyboard.");
@@ -418,6 +428,33 @@ export default function Home() {
                         {r.label}
                       </span>
                       <span className="block text-xs text-gray-500">{r.blurb}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="mb-3">
+              <p className="mb-1.5 text-sm font-medium text-gray-500">
+                Pick your animation style
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {ANIMATION_STYLES.map((s) => {
+                  const active = styleId === s.id;
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => setStyleId(s.id)}
+                      aria-pressed={active}
+                      title={s.prompt || "Let the AI pick a style for you"}
+                      className={`rounded-full px-3 py-1.5 text-sm font-semibold transition active:scale-95 ${
+                        active
+                          ? "bg-gradient-to-r from-fuchsia-500 to-purple-600 text-white shadow"
+                          : "bg-purple-50 text-purple-700 hover:bg-purple-100"
+                      }`}
+                    >
+                      {s.emoji} {s.label}
                     </button>
                   );
                 })}
