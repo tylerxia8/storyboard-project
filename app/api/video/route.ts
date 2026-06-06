@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { startScenes, hasVideoAI, type VideoSceneInput } from "@/lib/ai";
 import { moderateText } from "@/lib/safety";
-import type { MovieResponse, Rating } from "@/lib/types";
+import type { MovieResponse, Rating, StyleGuide } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -35,7 +35,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ blocked: true, message: check.kidMessage });
     }
 
-    const scenes = await startScenes(inputs, rating);
+    const scenes = await startScenes(
+      inputs,
+      rating,
+      body.styleGuide as StyleGuide | undefined
+    );
     return NextResponse.json({
       title: "",
       scenes,

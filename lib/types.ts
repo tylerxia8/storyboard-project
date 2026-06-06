@@ -67,9 +67,30 @@ export type StoryboardScene = {
   mock: boolean;
 };
 
+/** A character's fixed visual description, reused in every scene. */
+export type StyleCharacter = {
+  name: string;
+  /** Locked-in look: species/age, hair, clothing colors, features. */
+  look: string;
+};
+
+/**
+ * The "story bible" that keeps characters and art style consistent across the
+ * whole storyboard and movie. Generated once per storyboard and injected into
+ * every image and video prompt.
+ */
+export type StyleGuide = {
+  /** One canonical art-style sentence used for every scene. */
+  artStyle: string;
+  characters: StyleCharacter[];
+  /** Stable image seed so all scenes share the same visual DNA. */
+  seed: number;
+};
+
 export type StoryboardResponse = {
   title: string;
   scenes: StoryboardScene[];
+  styleGuide: StyleGuide;
   mock: boolean;
 };
 

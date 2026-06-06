@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateSceneImage } from "@/lib/ai";
 import { moderateText } from "@/lib/safety";
-import type { Rating, SceneImageResponse } from "@/lib/types";
+import type { Rating, SceneImageResponse, StyleGuide } from "@/lib/types";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
-    const { description, rating: rawRating } = await req.json();
+    const { description, rating: rawRating, styleGuide } = await req.json();
     if (typeof description !== "string" || description.trim().length === 0) {
       return NextResponse.json(
         { error: "Describe the scene first, then redraw it!" },
@@ -21,7 +21,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ blocked: true, message: check.kidMessage });
     }
 
-    const image = await generateSceneImage(description, rating);
+    const image = await generateSceneImage(
+      description,
+      rating,
+      styleGuide as StyleGuide | undefined
+    );
     return NextResponse.json(image satisfies SceneImageResponse);
   } catch {
     return NextResponse.json(

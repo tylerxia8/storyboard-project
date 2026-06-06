@@ -11,6 +11,7 @@ import type {
   StoryboardResponse,
   StoryboardScene,
   StoryboardVersion,
+  StyleGuide,
 } from "@/lib/types";
 import { RATINGS } from "@/lib/types";
 import SceneCard from "./components/SceneCard";
@@ -186,7 +187,7 @@ export default function Home() {
       const board = data as StoryboardResponse;
       setStoryboard(board);
       // Stream preview images in one scene at a time (kept responsive).
-      void generateInitialImages(board.scenes);
+      void generateInitialImages(board.scenes, board.styleGuide);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
@@ -194,11 +195,14 @@ export default function Home() {
     }
   }
 
-  async function fetchSceneImage(scene: StoryboardScene) {
+  async function fetchSceneImage(
+    scene: StoryboardScene,
+    styleGuide?: StyleGuide
+  ) {
     const res = await fetch("/api/scene-image", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ description: scene.description, rating }),
+      body: JSON.stringify({ description: scene.description, rating, styleGuide }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Could not draw scene.");
@@ -210,12 +214,15 @@ export default function Home() {
     };
   }
 
-  async function generateInitialImages(scenes: StoryboardScene[]) {
+  async function generateInitialImages(
+    scenes: StoryboardScene[],
+    styleGuide?: StyleGuide
+  ) {
     for (const scene of scenes) {
       if (scene.mock || scene.imageUrl) continue;
       setRedrawing((r) => ({ ...r, [scene.id]: true }));
       try {
-        const data = await fetchSceneImage(scene);
+        const data = await fetchSceneImage(scene, styleGuide);
         if (data.blocked) updateScene(scene.id, { imageBlocked: true });
         else
           updateScene(scene.id, {
@@ -246,7 +253,7 @@ export default function Home() {
     clearBanners();
     setRedrawing((r) => ({ ...r, [scene.id]: true }));
     try {
-      const data = await fetchSceneImage(scene);
+      const data = await fetchSceneImage(scene, storyboard?.styleGuide);
       if (data.blocked)
         return setSafetyMessage(
           (data as { message?: string }).message || "Let's keep it appropriate."
@@ -275,6 +282,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           rating,
+          styleGuide: storyboard.styleGuide,
           scenes: storyboard.scenes.map((s) => ({
             id: s.id,
             title: s.title,
@@ -713,6 +721,35 @@ export default function Home() {
                     </p>
                   )}
                 </div>
+
+                {storyboard.styleGuide &&
+                  (storyboard.styleGuide.characters.length > 0 ||
+                    storyboard.styleGuide.artStyle) && (
+                    <div className="rounded-2xl bg-white/70 p-3 ring-1 ring-purple-100">
+                      <p className="text-xs font-semibold text-purple-600">
+                        🎨 Style &amp; Cast{" "}
+                        <span className="font-normal text-purple-400">
+                          (kept the same in every scene)
+                        </span>
+                      </p>
+                      <p className="mt-1 text-xs text-gray-600">
+                        {storyboard.styleGuide.artStyle}
+                      </p>
+                      {storyboard.styleGuide.characters.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {storyboard.styleGuide.characters.map((c) => (
+                            <span
+                              key={c.name}
+                              title={c.look}
+                              className="rounded-full bg-purple-100 px-2.5 py-1 text-xs font-semibold text-purple-700"
+                            >
+                              🎭 {c.name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                 {storyboard.scenes.map((scene, i) => (
                   <StoryboardCard

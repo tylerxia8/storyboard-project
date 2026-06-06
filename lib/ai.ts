@@ -5,6 +5,8 @@ import type {
   Scene,
   Rating,
   StoryboardScene,
+  StyleCharacter,
+  StyleGuide,
   WritingTrait,
 } from "./types";
 import { getGuidelines, moderateImageUrl, moderateVideoFrame } from "./safety";
@@ -20,6 +22,13 @@ const VIDEO_MODEL =
 const IMAGE_MODEL =
   (process.env.REPLICATE_IMAGE_MODEL as `${string}/${string}`) ||
   "black-forest-labs/flux-schnell";
+// Set REPLICATE_VIDEO_MODE=i2v (and point REPLICATE_VIDEO_MODEL at an
+// image-to-video model) to animate the approved storyboard image directly,
+// which keeps the video looking exactly like the storyboard.
+const VIDEO_MODE = process.env.REPLICATE_VIDEO_MODE || "t2v";
+// Different image-to-video models name their input differently (image,
+// start_image, first_frame_image, ...). Override if your model needs another.
+const VIDEO_IMAGE_KEY = process.env.REPLICATE_VIDEO_IMAGE_KEY || "image";
 
 export const hasTextAI = Boolean(OPENAI_API_KEY);
 export const hasVideoAI = Boolean(REPLICATE_API_TOKEN);
@@ -222,15 +231,25 @@ function mockFeedback(story: string, wordCount: number): FeedbackResponse {
 
 type RawScene = { title: string; narration: string; prompt: string };
 
+type SceneBreakdown = {
+  title: string;
+  artStyle: string;
+  characters: StyleCharacter[];
+  scenes: RawScene[];
+};
+
+function defaultArtStyle(rating: Rating): string {
+  return rating === "teens"
+    ? "polished cinematic 3D animation, dynamic lighting, rich detailed color palette, PG-13"
+    : "bright and colorful 3D animated children's movie, soft rounded shapes, warm friendly lighting";
+}
+
 export async function storyToScenes(
   story: string,
   rating: Rating = "kids"
-): Promise<{
-  title: string;
-  scenes: RawScene[];
-}> {
+): Promise<SceneBreakdown> {
   if (!hasTextAI) {
-    return mockScenes(story);
+    return mockScenes(story, rating);
   }
 
   const styleNote =
@@ -251,10 +270,12 @@ export async function storyToScenes(
           content:
             "You turn a student's short story into a storyboard for an animated movie. " +
             "Break the story into 2-4 scenes that flow in order. " +
-            'Reply ONLY as JSON: {"title": string, "scenes": [{"title": string, "narration": string, "prompt": string}]}. ' +
+            'Reply ONLY as JSON: {"title": string, "artStyle": string, "characters": [{"name": string, "look": string}], "scenes": [{"title": string, "narration": string, "prompt": string}]}. ' +
             "title: a fun movie title for the story. " +
+            "artStyle: ONE detailed sentence describing a single, consistent art style for the ENTIRE movie (medium, rendering, color palette, mood, lighting). The SAME style must be used for every scene. " +
+            "characters: for EVERY important recurring character, give a fixed, detailed visual description (species/age, hair, skin/fur color, clothing colors, distinguishing features) so they look IDENTICAL in every scene. Each look under 25 words. " +
             "narration: one sentence describing the scene in the writer's voice. " +
-            "prompt: a vivid, detailed text-to-video prompt (describe characters, setting, action, mood, lighting). " +
+            "prompt: a vivid text-to-video prompt focused on action, camera, setting, and mood. Refer to characters by name; do NOT restate their physical look or the art style (those are added automatically). " +
             styleNote +
             " If the story contains anything not suitable for the audience, gently rewrite that part to be appropriate.\n\n" +
             getGuidelines(rating),
@@ -272,15 +293,29 @@ export async function storyToScenes(
           prompt: String(s.prompt || ""),
         }))
       : [];
-    if (scenes.length === 0) return mockScenes(story);
-    return { title: String(parsed.title || "My Story Movie"), scenes };
+    if (scenes.length === 0) return mockScenes(story, rating);
+    const characters: StyleCharacter[] = Array.isArray(parsed.characters)
+      ? parsed.characters
+          .slice(0, 6)
+          .map((c: Partial<StyleCharacter>) => ({
+            name: String(c.name || "").trim(),
+            look: String(c.look || "").trim(),
+          }))
+          .filter((c: StyleCharacter) => c.name && c.look)
+      : [];
+    return {
+      title: String(parsed.title || "My Story Movie"),
+      artStyle: String(parsed.artStyle || defaultArtStyle(rating)),
+      characters,
+      scenes,
+    };
   } catch (err) {
     console.error("storyToScenes failed, using mock:", err);
-    return mockScenes(story);
+    return mockScenes(story, rating);
   }
 }
 
-function mockScenes(story: string): { title: string; scenes: RawScene[] } {
+function mockScenes(story: string, rating: Rating): SceneBreakdown {
   const sentences = splitIntoSentences(story);
   const chunks =
     sentences.length === 0
@@ -302,44 +337,80 @@ function mockScenes(story: string): { title: string; scenes: RawScene[] } {
   }
 
   const firstWords = chunks[0].split(" ").slice(0, 4).join(" ");
-  return { title: firstWords ? `${firstWords}...` : "My Story Movie", scenes };
+  return {
+    title: firstWords ? `${firstWords}...` : "My Story Movie",
+    artStyle: defaultArtStyle(rating),
+    characters: [],
+    scenes,
+  };
 }
 
 // ------------------------- Images / Storyboard -------------------------
 
-function buildVisualPrompt(description: string, rating: Rating): string {
-  const style =
+/**
+ * Builds the shared consistency preamble (art style + locked character looks)
+ * that gets prepended to every image and video prompt so the whole movie stays
+ * visually consistent.
+ */
+function styleGuidePreamble(styleGuide?: StyleGuide): string {
+  if (!styleGuide) return "";
+  const chars =
+    styleGuide.characters.length > 0
+      ? " Characters must look IDENTICAL in every scene: " +
+        styleGuide.characters
+          .map((c) => `${c.name} — ${c.look}`)
+          .join("; ") +
+        "."
+      : "";
+  return `Consistent art style for the entire movie: ${styleGuide.artStyle}.${chars}`;
+}
+
+function buildVisualPrompt(
+  description: string,
+  rating: Rating,
+  styleGuide?: StyleGuide
+): string {
+  const fallback =
     rating === "teens"
       ? "Polished cinematic animated film still, detailed and dynamic, PG-13."
       : "Bright, colorful, friendly 3D animated children's movie still.";
-  return `${style} Scene: ${description}`;
+  const preamble = styleGuidePreamble(styleGuide) || fallback;
+  return `${preamble} This scene: ${description}`;
 }
 
-function buildVideoPrompt(description: string, rating: Rating): string {
-  const style =
+function buildVideoPrompt(
+  description: string,
+  rating: Rating,
+  styleGuide?: StyleGuide
+): string {
+  const fallback =
     rating === "teens"
       ? "Cinematic animated film clip with smooth motion, PG-13."
       : "Colorful, friendly 3D animated children's movie clip with smooth motion.";
-  return `${style} Scene: ${description}`;
+  const preamble = styleGuidePreamble(styleGuide) || fallback;
+  return `${preamble} This scene: ${description}`;
 }
 
-async function generateImage(prompt: string): Promise<string | null> {
+async function generateImage(
+  prompt: string,
+  seed?: number
+): Promise<string | null> {
   if (!hasImageAI) return null;
   try {
     const replicate = new Replicate({
       auth: REPLICATE_API_TOKEN,
       useFileOutput: false,
     });
+    const input: Record<string, unknown> = {
+      prompt,
+      aspect_ratio: "16:9",
+      output_format: "jpg",
+      num_outputs: 1,
+    };
+    // Reusing one seed across scenes anchors a shared look/palette.
+    if (typeof seed === "number") input.seed = seed;
     const output = await withRetry(
-      () =>
-        replicate.run(IMAGE_MODEL, {
-          input: {
-            prompt,
-            aspect_ratio: "16:9",
-            output_format: "jpg",
-            num_outputs: 1,
-          },
-        }),
+      () => replicate.run(IMAGE_MODEL, { input }),
       "generateImage"
     );
     if (typeof output === "string") return output;
@@ -354,10 +425,14 @@ async function generateImage(prompt: string): Promise<string | null> {
 /** Generates one moderated storyboard image for an (edited) description. */
 export async function generateSceneImage(
   description: string,
-  rating: Rating = "kids"
+  rating: Rating = "kids",
+  styleGuide?: StyleGuide
 ): Promise<{ imageUrl: string | null; imageBlocked?: boolean; mock: boolean }> {
   if (!hasImageAI) return { imageUrl: null, mock: true };
-  const url = await generateImage(buildVisualPrompt(description, rating));
+  const url = await generateImage(
+    buildVisualPrompt(description, rating, styleGuide),
+    styleGuide?.seed
+  );
   if (!url) return { imageUrl: null, mock: true };
   const check = await moderateImageUrl(url, rating);
   if (!check.safe) return { imageUrl: null, imageBlocked: true, mock: false };
@@ -372,9 +447,21 @@ export async function generateSceneImage(
 export async function buildStoryboardScenes(
   story: string,
   rating: Rating = "kids"
-): Promise<{ title: string; scenes: StoryboardScene[]; mock: boolean }> {
-  const { title, scenes: rawScenes } = await storyToScenes(story, rating);
+): Promise<{
+  title: string;
+  scenes: StoryboardScene[];
+  styleGuide: StyleGuide;
+  mock: boolean;
+}> {
+  const { title, artStyle, characters, scenes: rawScenes } =
+    await storyToScenes(story, rating);
   const stamp = Date.now();
+  const styleGuide: StyleGuide = {
+    artStyle,
+    characters,
+    // One stable seed for the whole storyboard keeps every scene on-style.
+    seed: Math.floor(Math.random() * 1_000_000_000),
+  };
   const scenes: StoryboardScene[] = rawScenes.map((raw, index) => ({
     id: `panel-${index + 1}-${stamp}`,
     title: raw.title,
@@ -383,7 +470,7 @@ export async function buildStoryboardScenes(
     palette: PALETTES[index % PALETTES.length],
     mock: !hasImageAI,
   }));
-  return { title, scenes, mock: !hasImageAI };
+  return { title, scenes, styleGuide, mock: !hasImageAI };
 }
 
 // ----------------------------- Video -----------------------------
@@ -399,7 +486,8 @@ export type VideoSceneInput = {
 /** Starts a video generation for each (approved, possibly edited) scene. */
 export async function startScenes(
   inputs: VideoSceneInput[],
-  rating: Rating = "kids"
+  rating: Rating = "kids",
+  styleGuide?: StyleGuide
 ): Promise<Scene[]> {
   const replicate = hasVideoAI
     ? new Replicate({ auth: REPLICATE_API_TOKEN })
@@ -409,7 +497,7 @@ export async function startScenes(
   const scenes: Scene[] = [];
   for (let index = 0; index < inputs.length; index++) {
     const input = inputs[index];
-    const prompt = buildVideoPrompt(input.description, rating);
+    const prompt = buildVideoPrompt(input.description, rating, styleGuide);
     const base: Scene = {
       id: input.id || `scene-${index + 1}-${Date.now()}`,
       title: input.title,
@@ -428,9 +516,17 @@ export async function startScenes(
       continue;
     }
 
+    // Build model input. In image-to-video mode, animate the approved
+    // storyboard image so the clip matches the storyboard exactly.
+    const modelInput: Record<string, unknown> = { prompt };
+    if (VIDEO_MODE === "i2v" && input.imageUrl) {
+      modelInput[VIDEO_IMAGE_KEY] = input.imageUrl;
+    }
+
     try {
       const prediction = await withRetry(
-        () => replicate.predictions.create({ model: VIDEO_MODEL, input: { prompt } }),
+        () =>
+          replicate.predictions.create({ model: VIDEO_MODEL, input: modelInput }),
         "startScene"
       );
       scenes.push({ ...base, predictionId: prediction.id, status: "processing" });
