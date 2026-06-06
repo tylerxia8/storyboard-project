@@ -14,20 +14,20 @@ import { getGuidelines, moderateImageUrl, moderateVideoFrame } from "./safety";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
 const TEXT_MODEL = process.env.OPENAI_TEXT_MODEL || "gpt-4o-mini";
-// Any text-to-video model on Replicate. Override via env to swap models.
+// Video model on Replicate. Defaults to an IMAGE-to-video model so each clip
+// animates the approved storyboard image (keeping characters + style identical).
 const VIDEO_MODEL =
   (process.env.REPLICATE_VIDEO_MODEL as `${string}/${string}`) ||
-  "wan-video/wan-2.2-t2v-fast";
+  "wan-video/wan-2.2-i2v-fast";
 // Any text-to-image model on Replicate. Fast + cheap by default for iteration.
 const IMAGE_MODEL =
   (process.env.REPLICATE_IMAGE_MODEL as `${string}/${string}`) ||
   "black-forest-labs/flux-schnell";
-// Set REPLICATE_VIDEO_MODE=i2v (and point REPLICATE_VIDEO_MODEL at an
-// image-to-video model) to animate the approved storyboard image directly,
-// which keeps the video looking exactly like the storyboard.
-const VIDEO_MODE = process.env.REPLICATE_VIDEO_MODE || "t2v";
+// "i2v" (default) animates the approved storyboard image so the video matches
+// the storyboard exactly. Set REPLICATE_VIDEO_MODE=t2v for plain text-to-video.
+const VIDEO_MODE = process.env.REPLICATE_VIDEO_MODE || "i2v";
 // Different image-to-video models name their input differently (image,
-// start_image, first_frame_image, ...). Override if your model needs another.
+// first_frame, start_image, ...). Override if your model needs another.
 const VIDEO_IMAGE_KEY = process.env.REPLICATE_VIDEO_IMAGE_KEY || "image";
 
 export const hasTextAI = Boolean(OPENAI_API_KEY);
@@ -412,6 +412,15 @@ function buildVideoPrompt(
   return `Scene: ${description}. ${preamble}`;
 }
 
+/**
+ * In image-to-video mode the storyboard image already defines the characters
+ * and art style, so the prompt only needs to describe the MOTION. Keeping it
+ * motion-focused stops the model from re-inventing the look.
+ */
+function buildMotionPrompt(description: string): string {
+  return `${description}. Bring this image to life with smooth, natural animation and gentle camera movement; keep the characters, colors, and art style exactly the same as the image.`;
+}
+
 async function generateImage(prompt: string): Promise<string | null> {
   if (!hasImageAI) return null;
   try {
@@ -521,11 +530,18 @@ export async function startScenes(
     ? new Replicate({ auth: REPLICATE_API_TOKEN })
     : null;
 
+  const i2v = VIDEO_MODE === "i2v";
+
   // Sequential creation respects low-credit Replicate rate limits (burst 1).
   const scenes: Scene[] = [];
   for (let index = 0; index < inputs.length; index++) {
     const input = inputs[index];
-    const prompt = buildVideoPrompt(input.description, rating, styleGuide);
+    // In image-to-video mode the image carries the look, so prompt only the
+    // motion; otherwise prompt the full styled scene for text-to-video.
+    const prompt =
+      i2v && input.imageUrl
+        ? buildMotionPrompt(input.description)
+        : buildVideoPrompt(input.description, rating, styleGuide);
     const base: Scene = {
       id: input.id || `scene-${index + 1}-${Date.now()}`,
       title: input.title,
@@ -544,10 +560,16 @@ export async function startScenes(
       continue;
     }
 
-    // Build model input. In image-to-video mode, animate the approved
-    // storyboard image so the clip matches the storyboard exactly.
+    // Image-to-video needs the storyboard image as its first frame. If a scene
+    // has no approved image (e.g. it was hidden by a safety check), we can't
+    // match it, so leave it as a placeholder rather than re-inventing the look.
+    if (i2v && !input.imageUrl) {
+      scenes.push({ ...base, status: "succeeded", mock: true });
+      continue;
+    }
+
     const modelInput: Record<string, unknown> = { prompt };
-    if (VIDEO_MODE === "i2v" && input.imageUrl) {
+    if (i2v && input.imageUrl) {
       modelInput[VIDEO_IMAGE_KEY] = input.imageUrl;
     }
 
