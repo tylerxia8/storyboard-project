@@ -236,6 +236,10 @@ type SceneBreakdown = {
   artStyle: string;
   characters: StyleCharacter[];
   scenes: RawScene[];
+  /** True when the model softened the story to fit the rating. */
+  adjustedForSafety: boolean;
+  /** A short, kid-friendly note about what was changed (no specifics). */
+  safetyNote: string;
 };
 
 function defaultArtStyle(rating: Rating): string {
@@ -270,12 +274,15 @@ export async function storyToScenes(
           content:
             "You turn a student's short story into a storyboard for an animated movie. " +
             "Break the story into 2-4 scenes that flow in order. " +
-            'Reply ONLY as JSON: {"title": string, "artStyle": string, "characters": [{"name": string, "look": string}], "scenes": [{"title": string, "narration": string, "prompt": string}]}. ' +
+            'Reply ONLY as JSON: {"title": string, "artStyle": string, "characters": [{"name": string, "look": string}], "scenes": [{"title": string, "narration": string, "prompt": string}], "adjustedForSafety": boolean, "safetyNote": string}. ' +
             "title: a fun movie title for the story. " +
             "artStyle: ONE detailed sentence describing a single, consistent art style for the ENTIRE movie (medium, rendering, color palette, mood, lighting). The SAME style must be used for every scene. " +
             "characters: for EVERY important recurring character, give a fixed, detailed visual description (species/age, hair, skin/fur color, clothing colors, distinguishing features) so they look IDENTICAL in every scene. Each look under 25 words. " +
             "narration: one sentence describing the scene in the writer's voice. " +
             "prompt: a vivid text-to-video prompt focused on action, camera, setting, and mood. Refer to characters by name; do NOT restate their physical look or the art style (those are added automatically). " +
+            "IMPORTANT: If the original story contains ANYTHING that does not fit the audience guidelines (for example violence, weapons, blood, alcohol, drugs, smoking, scary or rude content) and you change, remove, soften, or tone down that part when writing the scenes, you MUST set adjustedForSafety to true. Only set it to false when the original story needed NO changes at all. " +
+            "adjustedForSafety: boolean as described above. " +
+            "safetyNote: if adjustedForSafety is true, one short, gentle, kid-friendly sentence describing the KIND of change you made to keep it appropriate (do NOT repeat the inappropriate content); otherwise an empty string. " +
             styleNote +
             " If the story contains anything not suitable for the audience, gently rewrite that part to be appropriate.\n\n" +
             getGuidelines(rating),
@@ -303,11 +310,14 @@ export async function storyToScenes(
           }))
           .filter((c: StyleCharacter) => c.name && c.look)
       : [];
+    const adjustedForSafety = parsed.adjustedForSafety === true;
     return {
       title: String(parsed.title || "My Story Movie"),
       artStyle: String(parsed.artStyle || defaultArtStyle(rating)),
       characters,
       scenes,
+      adjustedForSafety,
+      safetyNote: adjustedForSafety ? String(parsed.safetyNote || "") : "",
     };
   } catch (err) {
     console.error("storyToScenes failed, using mock:", err);
@@ -342,6 +352,8 @@ function mockScenes(story: string, rating: Rating): SceneBreakdown {
     artStyle: defaultArtStyle(rating),
     characters: [],
     scenes,
+    adjustedForSafety: false,
+    safetyNote: "",
   };
 }
 
@@ -449,10 +461,18 @@ export async function buildStoryboardScenes(
   title: string;
   scenes: StoryboardScene[];
   styleGuide: StyleGuide;
+  adjusted: boolean;
+  adjustmentNote?: string;
   mock: boolean;
 }> {
-  const { title, artStyle, characters, scenes: rawScenes } =
-    await storyToScenes(story, rating);
+  const {
+    title,
+    artStyle,
+    characters,
+    scenes: rawScenes,
+    adjustedForSafety,
+    safetyNote,
+  } = await storyToScenes(story, rating);
   const stamp = Date.now();
   const styleGuide: StyleGuide = { artStyle, characters };
   const scenes: StoryboardScene[] = rawScenes.map((raw, index) => ({
@@ -463,7 +483,14 @@ export async function buildStoryboardScenes(
     palette: PALETTES[index % PALETTES.length],
     mock: !hasImageAI,
   }));
-  return { title, scenes, styleGuide, mock: !hasImageAI };
+  return {
+    title,
+    scenes,
+    styleGuide,
+    adjusted: adjustedForSafety,
+    adjustmentNote: safetyNote || undefined,
+    mock: !hasImageAI,
+  };
 }
 
 // ----------------------------- Video -----------------------------

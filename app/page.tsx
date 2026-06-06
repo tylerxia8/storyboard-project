@@ -36,6 +36,7 @@ export default function Home() {
 
   const [error, setError] = useState<string | null>(null);
   const [safetyMessage, setSafetyMessage] = useState<string | null>(null);
+  const [adjustNotice, setAdjustNotice] = useState<string | null>(null);
 
   const [versions, setVersions] = useState<StoryboardVersion[]>([]);
   const [comparing, setComparing] = useState(false);
@@ -130,6 +131,7 @@ export default function Home() {
   function clearBanners() {
     setError(null);
     setSafetyMessage(null);
+    setAdjustNotice(null);
   }
 
   async function getFeedback() {
@@ -186,6 +188,12 @@ export default function Home() {
       if (data.blocked) return setSafetyMessage(data.message as string);
       const board = data as StoryboardResponse;
       setStoryboard(board);
+      if (board.adjusted) {
+        setAdjustNotice(
+          board.adjustmentNote ||
+            "We gently adjusted a few parts of your story to keep it right for the chosen audience."
+        );
+      }
       // Stream preview images in one scene at a time (kept responsive).
       void generateInitialImages(board.scenes, board.styleGuide);
     } catch (e) {
@@ -468,6 +476,23 @@ export default function Home() {
                     : "Let's keep it kid-friendly!"}
                 </p>
                 <p className="mt-1">{safetyMessage}</p>
+              </div>
+            </div>
+          )}
+
+          {adjustNotice && (
+            <div className="animate-pop flex items-start gap-3 rounded-3xl bg-amber-50 p-5 text-amber-900 shadow ring-2 ring-amber-200">
+              <span className="text-2xl">✏️</span>
+              <div>
+                <p className="font-semibold text-amber-700">
+                  We tweaked your story a little
+                </p>
+                <p className="mt-1">{adjustNotice}</p>
+                <p className="mt-1 text-sm text-amber-600">
+                  This keeps your movie right for{" "}
+                  {rating === "teens" ? "teens (PG-13)" : "younger kids (PG)"}.
+                  Your own writing above is unchanged.
+                </p>
               </div>
             </div>
           )}

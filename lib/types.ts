@@ -89,6 +89,10 @@ export type StoryboardResponse = {
   title: string;
   scenes: StoryboardScene[];
   styleGuide: StyleGuide;
+  /** True when the AI softened part of the story to meet the rating. */
+  adjusted: boolean;
+  /** A short, kid-friendly note about what was made more appropriate. */
+  adjustmentNote?: string;
   mock: boolean;
 };
 
