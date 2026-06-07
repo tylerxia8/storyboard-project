@@ -8,6 +8,8 @@ import {
 } from "@/lib/types";
 
 export const runtime = "nodejs";
+// Drawing the character reference sheet + scene moderation can take a while.
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 // High-quality, steerable TTS. Override via env if desired.

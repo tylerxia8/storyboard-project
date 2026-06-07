@@ -3,6 +3,8 @@ import { getPredictionStatus } from "@/lib/ai";
 import type { Rating, StatusResponse } from "@/lib/types";
 
 export const runtime = "nodejs";
+// Frame extraction (ffmpeg) + image moderation on finished clips.
+export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");

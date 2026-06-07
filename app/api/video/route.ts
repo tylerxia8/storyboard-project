@@ -19,6 +19,7 @@ function parseScript(raw: unknown): ScriptLine[] {
 }
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
