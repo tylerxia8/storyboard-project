@@ -1,7 +1,7 @@
 /**
- * Audience rating. "kids" = strict G/PG for ages ~7-11. "teens" = PG-13 for
- * middle / early high school: allows mild language and moderate cartoon action
- * (e.g. bugs getting smashed) but still blocks sexual content, gore, etc.
+ * Audience rating. "kids" = strict G, suitable for all ages. "teens" = PG:
+ * parental-guidance level that allows mild language and mild, stylized cartoon
+ * action while still blocking sexual content, strong language, gore, etc.
  */
 export type Rating = "kids" | "teens";
 
@@ -9,14 +9,22 @@ export const RATINGS: { id: Rating; label: string; blurb: string }[] = [
   {
     id: "kids",
     label: "Younger Kids",
-    blurb: "G / PG · ages 7-11",
+    blurb: "G · for everyone",
   },
   {
     id: "teens",
     label: "Teens",
-    blurb: "PG-13 · middle & early high school",
+    blurb: "PG · parental guidance",
   },
 ];
+
+/** One spoken line in a scene's script: who says it, and what they say. */
+export type ScriptLine = {
+  /** The character speaking (e.g. "Luna"), or "Narrator". */
+  speaker: string;
+  /** The words they say aloud. */
+  line: string;
+};
 
 /** One of the writing traits we coach on, with a 1-3 star rating and a tip. */
 export type WritingTrait = {
@@ -125,6 +133,10 @@ export type StoryboardScene = {
   title: string;
   /** The student-editable description that drives the image and the video. */
   description: string;
+  /** A scene-specific "curious audience" question nudging richer detail. */
+  question?: string;
+  /** The lines characters speak in this scene (voiced in the movie). */
+  script?: ScriptLine[];
   /** Preview image URL, or null in Practice Mode / when hidden. */
   imageUrl: string | null;
   /** True when the generated image failed the image safety check. */
@@ -135,11 +147,16 @@ export type StoryboardScene = {
   mock: boolean;
 };
 
+/** A voice gender used to pick a matching narrator voice for a character. */
+export type VoiceGender = "male" | "female" | "neutral";
+
 /** A character's fixed visual description, reused in every scene. */
 export type StyleCharacter = {
   name: string;
   /** Locked-in look: species/age, hair, clothing colors, features. */
   look: string;
+  /** Voice gender for read-aloud: male, female, or neutral. */
+  voice?: VoiceGender;
 };
 
 /**
@@ -151,6 +168,13 @@ export type StyleGuide = {
   /** One canonical art-style sentence used for every scene. */
   artStyle: string;
   characters: StyleCharacter[];
+  /**
+   * A canonical "character reference sheet" image showing the cast in the
+   * chosen art style. Every scene image is generated conditioned on this anchor
+   * (via a reference-capable model) so characters stay consistent between
+   * frames. Null/undefined falls back to text-only consistency.
+   */
+  referenceImage?: string | null;
 };
 
 export type StoryboardResponse = {
@@ -196,6 +220,8 @@ export type Scene = {
   title: string;
   /** One or two sentences describing what happens, in the child's voice. */
   narration: string;
+  /** The lines characters speak in this scene, voiced during playback. */
+  script?: ScriptLine[];
   /** The detailed prompt sent to the video model. */
   prompt: string;
   /** The approved storyboard image, shown as a poster while the video renders. */

@@ -11,9 +11,9 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 // --------------------------- Prompt guidelines ---------------------------
 
-/** Strict G/PG rules for the youngest audience. */
-export const PG_GUIDELINES = `CONTENT SAFETY RULES (must always follow):
-- Keep everything strictly G/PG and appropriate for children ages 7-11.
+/** Strict G rules: suitable for general audiences of all ages. */
+export const G_GUIDELINES = `CONTENT SAFETY RULES (must always follow):
+- Keep everything strictly G-rated and suitable for general audiences of all ages.
 - Absolutely NO nudity, sexual content, or romance beyond a friendly hug.
 - NO profanity, swearing, slurs, or crude language.
 - NO extreme or graphic violence, blood, gore, weapons used to harm, or death.
@@ -24,21 +24,23 @@ export const PG_GUIDELINES = `CONTENT SAFETY RULES (must always follow):
 - Keep characters fully and modestly clothed at all times.
 - The overall tone must be wholesome, kind, and fun, like a family animated film.`;
 
-/** PG-13 rules for middle / early high school audiences. */
-export const TEEN_GUIDELINES = `CONTENT SAFETY RULES (must always follow):
-- Target a PG-13 level suitable for middle and early high school students (ages 11-15).
-- Moderate, stylized action and adventure violence is allowed (e.g. cartoon
-  combat, a bug getting smashed, monsters defeated, mild peril and stakes).
-- NO graphic gore, no lingering on blood, no torture, no cruelty, and no
-  realistic depictions of severe injury or death.
-- NO sexual content or nudity; brief, non-explicit romance (like a kiss) is okay.
-- Mild language is okay, but NO strong profanity, slurs, or hate speech.
-- NO depiction or encouragement of drug use, self-harm, or suicide.
-- Keep characters appropriately clothed.
-- The overall tone should be exciting and engaging but still responsible for teens.`;
+/** PG rules: parental guidance suggested; mild content okay. */
+export const PG_GUIDELINES = `CONTENT SAFETY RULES (must always follow):
+- Target a PG level (parental guidance suggested) suitable for older kids and up.
+- Mild, stylized cartoon or fantasy action is allowed (e.g. light cartoon
+  scuffles, a bug getting squished, a monster scared off, mild peril and stakes).
+- NO intense or sustained violence, NO graphic gore, NO blood, NO torture, NO
+  cruelty, and NO realistic depictions of injury or death.
+- NO sexual content or nudity; only a brief, innocent moment of romance (like a
+  quick hug or a peck on the cheek) is okay.
+- Keep language clean; only very mild expressions, and NO profanity, slurs, or
+  hate speech.
+- NO drugs, alcohol, smoking, self-harm, or suicide.
+- Keep characters appropriately and modestly clothed.
+- The overall tone should be fun and adventurous, but still gentle and responsible.`;
 
 export function getGuidelines(rating: Rating): string {
-  return rating === "teens" ? TEEN_GUIDELINES : PG_GUIDELINES;
+  return rating === "teens" ? PG_GUIDELINES : G_GUIDELINES;
 }
 
 // --------------------------- Local word filter ---------------------------
@@ -49,6 +51,8 @@ export type ModerationResult = {
   categories: string[];
   /** A friendly, age-appropriate message to show if blocked. */
   kidMessage: string;
+  /** The specific words/phrases that tripped the filter, to highlight for kids. */
+  flaggedTerms?: string[];
 };
 
 // Always-on local filter so Practice Mode (no API key) is still protected.
@@ -92,6 +96,8 @@ const LOCAL_PATTERNS: { label: string; regex: RegExp }[] = [
 /** Local categories each rating blocks. */
 const LOCAL_BLOCK: Record<Rating, Set<string>> = {
   kids: new Set(LOCAL_PATTERNS.map((p) => p.label)),
+  // PG blocks everything G does EXCEPT very mild language; mild cartoon action
+  // words (e.g. a single "fight") are allowed by the AI guidelines.
   teens: new Set([
     "profanity_strong",
     "slur",
@@ -99,6 +105,7 @@ const LOCAL_BLOCK: Record<Rating, Set<string>> = {
     "self_harm",
     "violence_graphic",
     "substances_hard",
+    "substances_soft",
   ]),
 };
 
@@ -111,24 +118,24 @@ type OpenAiPolicy =
 const OPENAI_POLICY: Record<Rating, OpenAiPolicy> = {
   // Strictest: block whenever the model flags anything at all.
   kids: { mode: "flagged" },
-  // PG-13: allow more action violence, keep everything else fairly strict.
+  // PG: allow only MILD stylized action; keep everything else strict.
   teens: {
     mode: "threshold",
-    fallback: 0.8,
+    fallback: 0.6,
     thresholds: {
-      sexual: 0.6,
-      "sexual/minors": 0.15,
-      harassment: 0.8,
-      "harassment/threatening": 0.7,
-      hate: 0.6,
-      "hate/threatening": 0.5,
-      illicit: 0.85,
-      "illicit/violent": 0.9,
-      "self-harm": 0.5,
-      "self-harm/intent": 0.5,
-      "self-harm/instructions": 0.4,
-      violence: 0.92,
-      "violence/graphic": 0.75,
+      sexual: 0.4,
+      "sexual/minors": 0.1,
+      harassment: 0.6,
+      "harassment/threatening": 0.5,
+      hate: 0.4,
+      "hate/threatening": 0.35,
+      illicit: 0.6,
+      "illicit/violent": 0.6,
+      "self-harm": 0.35,
+      "self-harm/intent": 0.35,
+      "self-harm/instructions": 0.3,
+      violence: 0.7,
+      "violence/graphic": 0.45,
     },
   },
 };
@@ -145,6 +152,24 @@ const SCENE_BLOCK_MESSAGE =
 
 // --------------------------- Local check ---------------------------
 
+/** Collects the actual words/phrases in the text that match the filter. */
+function findFlaggedTerms(text: string, labels?: Set<string>): string[] {
+  const terms = new Set<string>();
+  for (const { label, regex } of LOCAL_PATTERNS) {
+    if (labels && !labels.has(label)) continue;
+    const g = new RegExp(
+      regex.source,
+      regex.flags.includes("g") ? regex.flags : regex.flags + "g"
+    );
+    let m: RegExpExecArray | null;
+    while ((m = g.exec(text)) !== null) {
+      if (m[0]) terms.add(m[0]);
+      if (m.index === g.lastIndex) g.lastIndex++; // guard against zero-width
+    }
+  }
+  return [...terms];
+}
+
 function localCheck(text: string, rating: Rating): ModerationResult {
   const block = LOCAL_BLOCK[rating];
   const categories: string[] = [];
@@ -155,6 +180,7 @@ function localCheck(text: string, rating: Rating): ModerationResult {
     safe: categories.length === 0,
     categories,
     kidMessage: categories.length === 0 ? "" : FRIENDLY_BLOCK_MESSAGE,
+    flaggedTerms: categories.length === 0 ? [] : findFlaggedTerms(text, block),
   };
 }
 
@@ -214,7 +240,14 @@ export async function moderateText(
     });
     const item = result.results[0] as unknown as ModerationItem;
     const { blocked, categories } = evaluateOpenAi(item, rating);
-    if (blocked) return { safe: false, categories, kidMessage: FRIENDLY_BLOCK_MESSAGE };
+    if (blocked)
+      return {
+        safe: false,
+        categories,
+        kidMessage: FRIENDLY_BLOCK_MESSAGE,
+        // Best-effort: surface any matching words as hints (scan all patterns).
+        flaggedTerms: findFlaggedTerms(text),
+      };
     return { safe: true, categories: [], kidMessage: "" };
   } catch (err) {
     console.error("OpenAI moderation failed, using local filter only:", err);

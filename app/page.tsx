@@ -16,14 +16,51 @@ import type {
 } from "@/lib/types";
 import { ANIMATION_STYLES, RATINGS } from "@/lib/types";
 import SceneCard from "./components/SceneCard";
+import MoviePlayer from "./components/MoviePlayer";
 import StoryboardCard from "./components/StoryboardCard";
 import SpeakButton from "./components/SpeakButton";
+import VoicePicker from "./components/VoicePicker";
 import WritingChecklist from "./components/WritingChecklist";
 import WordBoosters from "./components/WordBoosters";
 import DictateButton from "./components/DictateButton";
 import SavedStories from "./components/SavedStories";
 import GlowUpMeter from "./components/GlowUpMeter";
 import { scoreStory } from "@/lib/storyScore";
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Renders the story with any flagged words wrapped in a highlight, so a child
+// can see exactly which parts to change.
+function highlightStory(text: string, terms: string[]) {
+  const cleaned = terms.map((t) => t.trim()).filter(Boolean);
+  if (cleaned.length === 0) return text;
+  const re = new RegExp(`(${cleaned.map(escapeRegExp).join("|")})`, "gi");
+  const parts = text.split(re);
+  return parts.map((part, i) =>
+    i % 2 === 1 ? (
+      <mark
+        key={i}
+        className="rounded bg-rose-200 px-0.5 font-semibold text-rose-900 ring-1 ring-rose-300"
+      >
+        {part}
+      </mark>
+    ) : (
+      <span key={i}>{part}</span>
+    )
+  );
+}
+
+// Friendly placeholder gradients for student-added storyboard panels.
+const EXTRA_PALETTES = [
+  "from-sky-400 via-indigo-400 to-purple-500",
+  "from-amber-300 via-orange-400 to-rose-500",
+  "from-emerald-300 via-teal-400 to-cyan-500",
+  "from-fuchsia-400 via-pink-400 to-rose-400",
+  "from-lime-300 via-green-400 to-emerald-500",
+  "from-violet-400 via-purple-400 to-indigo-500",
+];
 
 export default function Home() {
   const [story, setStory] = useState("");
@@ -40,6 +77,7 @@ export default function Home() {
 
   const [error, setError] = useState<string | null>(null);
   const [safetyMessage, setSafetyMessage] = useState<string | null>(null);
+  const [safetyTerms, setSafetyTerms] = useState<string[]>([]);
   const [adjustNotice, setAdjustNotice] = useState<string | null>(null);
   const [celebration, setCelebration] = useState<{
     title: string;
@@ -52,6 +90,8 @@ export default function Home() {
 
   const [savedStories, setSavedStories] = useState<SavedStory[]>([]);
   const [savedToast, setSavedToast] = useState(false);
+  const [savedOpen, setSavedOpen] = useState(false);
+  const [showPlayer, setShowPlayer] = useState(false);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const ratingRef = useRef<Rating>(rating);
@@ -151,6 +191,7 @@ export default function Home() {
     setMovie(null);
     setVersions([]);
     setComparing(false);
+    setSavedOpen(false);
   }
 
   function deleteStory(id: string) {
@@ -169,6 +210,7 @@ export default function Home() {
   function clearBanners() {
     setError(null);
     setSafetyMessage(null);
+    setSafetyTerms([]);
     setAdjustNotice(null);
   }
 
@@ -226,7 +268,11 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not make storyboard.");
-      if (data.blocked) return setSafetyMessage(data.message as string);
+      if (data.blocked) {
+        setSafetyTerms((data.terms as string[]) ?? []);
+        setSafetyMessage(data.message as string);
+        return;
+      }
       const board = data as StoryboardResponse;
       setStoryboard(board);
       if (board.adjusted) {
@@ -307,6 +353,34 @@ export default function Home() {
     );
   }
 
+  function addScene() {
+    clearBanners();
+    setStoryboard((prev) => {
+      if (!prev) return prev;
+      const n = prev.scenes.length;
+      const newScene: StoryboardScene = {
+        id: `panel-extra-${Date.now()}`,
+        title: `Scene ${n + 1}`,
+        description: "",
+        imageUrl: null,
+        palette: EXTRA_PALETTES[n % EXTRA_PALETTES.length],
+        mock: prev.mock,
+      };
+      return { ...prev, scenes: [...prev.scenes, newScene] };
+    });
+  }
+
+  function removeScene(id: string) {
+    setStoryboard((prev) =>
+      prev ? { ...prev, scenes: prev.scenes.filter((s) => s.id !== id) } : prev
+    );
+    setRedrawing((r) => {
+      const next = { ...r };
+      delete next[id];
+      return next;
+    });
+  }
+
   async function redrawScene(scene: StoryboardScene) {
     clearBanners();
     setRedrawing((r) => ({ ...r, [scene.id]: true }));
@@ -350,12 +424,17 @@ export default function Home() {
             description: s.description,
             palette: s.palette,
             imageUrl: s.imageUrl,
+            script: s.script,
           })),
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not make video.");
-      if (data.blocked) return setSafetyMessage(data.message as string);
+      if (data.blocked) {
+        setSafetyTerms((data.terms as string[]) ?? []);
+        setSafetyMessage(data.message as string);
+        return;
+      }
       const movieData = { ...(data as MovieResponse), title: storyboard.title };
       setMovie(movieData);
       startPolling(movieData.scenes);
@@ -423,9 +502,30 @@ export default function Home() {
               Write a story, design your storyboard, then make a movie!
             </p>
           </div>
-          <span className="ml-auto hidden items-center gap-1 rounded-full bg-white/20 px-3 py-1 text-sm font-semibold backdrop-blur sm:flex">
-            🛡️ {rating === "teens" ? "PG-13 checked" : "Kid-safe · PG checked"}
-          </span>
+          <div className="relative ml-auto">
+            <button
+              type="button"
+              onClick={() => setSavedOpen((o) => !o)}
+              aria-expanded={savedOpen}
+              className="flex items-center gap-2 rounded-full bg-white/20 px-3 py-1.5 text-sm font-semibold backdrop-blur transition hover:bg-white/30 active:scale-95"
+            >
+              📂 My Saved Stories
+              {savedStories.length > 0 && (
+                <span className="rounded-full bg-white/30 px-2 py-0.5 text-xs font-bold">
+                  {savedStories.length}
+                </span>
+              )}
+            </button>
+            <SavedStories
+              saved={savedStories}
+              currentStory={story}
+              open={savedOpen}
+              onClose={() => setSavedOpen(false)}
+              onSave={saveStory}
+              onLoad={loadStory}
+              onDelete={deleteStory}
+            />
+          </div>
         </div>
       </header>
 
@@ -441,7 +541,12 @@ export default function Home() {
                     setStory((s) => (s.trim() ? `${s.trim()} ${t}` : t))
                   }
                 />
-                {story.trim() && <SpeakButton text={story} label="Read aloud" />}
+                {story.trim() && (
+                  <>
+                    <VoicePicker />
+                    <SpeakButton text={story} label="Read aloud" />
+                  </>
+                )}
                 <span className="rounded-full bg-purple-100 px-3 py-1 text-sm font-medium text-purple-700">
                   {wordCount} words
                 </span>
@@ -535,14 +640,6 @@ export default function Home() {
 
           <WordBoosters story={story} onApply={setStory} />
 
-          <SavedStories
-            saved={savedStories}
-            currentStory={story}
-            onSave={saveStory}
-            onLoad={loadStory}
-            onDelete={deleteStory}
-          />
-
           {savedToast && (
             <div className="animate-pop rounded-2xl bg-indigo-100 px-4 py-3 text-center font-semibold text-indigo-700 ring-2 ring-indigo-200">
               💾 Saved! You can open it again anytime.
@@ -552,13 +649,44 @@ export default function Home() {
           {safetyMessage && (
             <div className="animate-pop flex items-start gap-3 rounded-3xl bg-sky-50 p-5 text-sky-800 shadow ring-2 ring-sky-200">
               <span className="text-2xl">🛟</span>
-              <div>
+              <div className="min-w-0 flex-1">
                 <p className="font-semibold text-sky-700">
                   {rating === "teens"
-                    ? "Let's keep it within PG-13!"
+                    ? "Let's keep it within PG!"
                     : "Let's keep it kid-friendly!"}
                 </p>
                 <p className="mt-1">{safetyMessage}</p>
+
+                {safetyTerms.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-sm font-semibold text-sky-700">
+                      Parts to change:
+                    </p>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {safetyTerms.map((t, i) => (
+                        <span
+                          key={`${t}-${i}`}
+                          className="rounded-full bg-rose-100 px-2.5 py-1 text-sm font-semibold text-rose-700 ring-1 ring-rose-200"
+                        >
+                          “{t}”
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {safetyTerms.some((t) =>
+                  story.toLowerCase().includes(t.toLowerCase())
+                ) && (
+                  <div className="mt-3">
+                    <p className="text-sm font-semibold text-sky-700">
+                      Here it is in your story:
+                    </p>
+                    <p className="mt-1.5 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-2xl bg-white p-3 text-sm leading-relaxed text-gray-700 ring-1 ring-sky-100">
+                      {highlightStory(story, safetyTerms)}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -573,7 +701,7 @@ export default function Home() {
                 <p className="mt-1">{adjustNotice}</p>
                 <p className="mt-1 text-sm text-amber-600">
                   This keeps your movie right for{" "}
-                  {rating === "teens" ? "teens (PG-13)" : "younger kids (PG)"}.
+                  {rating === "teens" ? "teens (PG)" : "younger kids (G)"}.
                   Your own writing above is unchanged.
                 </p>
               </div>
@@ -684,6 +812,7 @@ export default function Home() {
                   onClick={() => {
                     stopPolling();
                     setMovie(null);
+                    setShowPlayer(false);
                   }}
                   className="rounded-full bg-purple-100 px-3 py-1 text-sm font-semibold text-purple-700 transition hover:bg-purple-200"
                 >
@@ -745,8 +874,19 @@ export default function Home() {
                     </p>
                   </div>
                 )}
+                <button
+                  onClick={() => setShowPlayer(true)}
+                  className="rounded-2xl bg-gradient-to-r from-fuchsia-500 to-purple-600 px-5 py-3 text-lg font-bold text-white shadow transition hover:from-fuchsia-400 hover:to-purple-500 active:scale-95"
+                >
+                  ▶️ Play whole movie
+                </button>
                 {movie.scenes.map((scene, i) => (
-                  <SceneCard key={scene.id} scene={scene} index={i} />
+                  <SceneCard
+                    key={scene.id}
+                    scene={scene}
+                    index={i}
+                    characters={storyboard?.styleGuide?.characters ?? []}
+                  />
                 ))}
                 <p className="rounded-2xl bg-purple-50 p-3 text-center text-sm text-purple-600">
                   ✏️ Want changes? Go{" "}
@@ -837,45 +977,29 @@ export default function Home() {
                   )}
                 </div>
 
-                {storyboard.styleGuide &&
-                  (storyboard.styleGuide.characters.length > 0 ||
-                    storyboard.styleGuide.artStyle) && (
-                    <div className="rounded-2xl bg-white/70 p-3 ring-1 ring-purple-100">
-                      <p className="text-xs font-semibold text-purple-600">
-                        🎨 Style &amp; Cast{" "}
-                        <span className="font-normal text-purple-400">
-                          (kept the same in every scene)
-                        </span>
-                      </p>
-                      <p className="mt-1 text-xs text-gray-600">
-                        {storyboard.styleGuide.artStyle}
-                      </p>
-                      {storyboard.styleGuide.characters.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {storyboard.styleGuide.characters.map((c) => (
-                            <span
-                              key={c.name}
-                              title={c.look}
-                              className="rounded-full bg-purple-100 px-2.5 py-1 text-xs font-semibold text-purple-700"
-                            >
-                              🎭 {c.name}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
                 {storyboard.scenes.map((scene, i) => (
                   <StoryboardCard
                     key={scene.id}
                     scene={scene}
                     index={i}
                     redrawing={Boolean(redrawing[scene.id])}
+                    characters={storyboard.styleGuide?.characters ?? []}
                     onChange={(patch) => updateScene(scene.id, patch)}
                     onRedraw={() => redrawScene(scene)}
+                    onRemove={
+                      storyboard.scenes.length > 1
+                        ? () => removeScene(scene.id)
+                        : undefined
+                    }
                   />
                 ))}
+
+                <button
+                  onClick={addScene}
+                  className="rounded-2xl border-2 border-dashed border-purple-300 bg-white/60 px-5 py-3 text-base font-bold text-purple-600 transition hover:border-purple-400 hover:bg-purple-50 active:scale-95"
+                >
+                  ➕ Add another picture
+                </button>
 
                 <button
                   onClick={createVideo}
@@ -889,6 +1013,15 @@ export default function Home() {
           </div>
         </section>
       </main>
+
+      {showPlayer && movie && (
+        <MoviePlayer
+          title={movie.title}
+          scenes={movie.scenes}
+          characters={storyboard?.styleGuide?.characters ?? []}
+          onClose={() => setShowPlayer(false)}
+        />
+      )}
 
       {(storyboard?.mock || movie?.mock) && (
         <footer className="bg-amber-100 px-6 py-2 text-center text-sm text-amber-800">

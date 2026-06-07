@@ -4,12 +4,14 @@ import type {
   FeedbackResponse,
   Scene,
   Rating,
+  ScriptLine,
   StoryboardScene,
   StyleCharacter,
   StyleGuide,
   WritingTrait,
 } from "./types";
 import { getGuidelines, moderateImageUrl, moderateVideoFrame } from "./safety";
+import { curiousQuestion } from "./curiosity";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
@@ -20,9 +22,22 @@ const VIDEO_MODEL =
   (process.env.REPLICATE_VIDEO_MODEL as `${string}/${string}`) ||
   "wan-video/wan-2.2-i2v-fast";
 // Any text-to-image model on Replicate. Fast + cheap by default for iteration.
+// Used to draw the one-time character reference sheet (the consistency anchor).
 const IMAGE_MODEL =
   (process.env.REPLICATE_IMAGE_MODEL as `${string}/${string}`) ||
   "black-forest-labs/flux-schnell";
+// Reference-capable image model: given the character reference sheet + a scene
+// prompt, it redraws the SAME characters/style in a new scene. This is what
+// keeps characters consistent between frames. Set to "" to disable and fall
+// back to text-only consistency. Default: FLUX.1 Kontext [pro].
+const IMAGE_REF_MODEL = (
+  process.env.REPLICATE_IMAGE_REF_MODEL ?? "black-forest-labs/flux-kontext-pro"
+).trim();
+// The input field the reference model uses for the source image. FLUX Kontext
+// uses "input_image" (single); models like google/nano-banana use "image_input"
+// (an array — set REPLICATE_IMAGE_REF_KEY_ARRAY=true).
+const IMAGE_REF_KEY = process.env.REPLICATE_IMAGE_REF_KEY || "input_image";
+const IMAGE_REF_KEY_ARRAY = process.env.REPLICATE_IMAGE_REF_KEY_ARRAY === "true";
 // "i2v" (default) animates the approved storyboard image so the video matches
 // the storyboard exactly. Set REPLICATE_VIDEO_MODE=t2v for plain text-to-video.
 const VIDEO_MODE = process.env.REPLICATE_VIDEO_MODE || "i2v";
@@ -33,6 +48,9 @@ const VIDEO_IMAGE_KEY = process.env.REPLICATE_VIDEO_IMAGE_KEY || "image";
 export const hasTextAI = Boolean(OPENAI_API_KEY);
 export const hasVideoAI = Boolean(REPLICATE_API_TOKEN);
 export const hasImageAI = Boolean(REPLICATE_API_TOKEN);
+// Whether reference-conditioned (character-consistent) image generation is on.
+const hasRefModel =
+  hasImageAI && IMAGE_REF_MODEL.length > 0 && IMAGE_REF_MODEL.includes("/");
 
 const PALETTES = [
   "from-sky-400 via-indigo-400 to-purple-500",
@@ -97,8 +115,8 @@ export async function getFeedback(
 
   const audience =
     rating === "teens"
-      ? "middle and early high school students (ages 11-15). Be encouraging and " +
-        "respectful, not babyish. Use clear language appropriate for teens."
+      ? "older kids and young teens reading PG content. Be encouraging and " +
+        "respectful, not babyish. Use clear, friendly language."
       : "elementary school children (ages 7-11). Always be warm and positive. " +
         "Use simple words a child understands. Never be harsh.";
 
@@ -229,7 +247,28 @@ function mockFeedback(story: string, wordCount: number): FeedbackResponse {
 
 // ----------------------------- Scenes -----------------------------
 
-type RawScene = { title: string; narration: string; prompt: string };
+type RawScene = {
+  title: string;
+  narration: string;
+  prompt: string;
+  question: string;
+  dialogue: ScriptLine[];
+};
+
+/** Keeps only well-formed, non-empty dialogue lines (max 4 per scene). */
+function sanitizeDialogue(raw: unknown): ScriptLine[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((d) => {
+      const o = (d ?? {}) as Partial<ScriptLine>;
+      return {
+        speaker: String(o.speaker ?? "").trim().slice(0, 40),
+        line: String(o.line ?? "").trim().slice(0, 200),
+      };
+    })
+    .filter((d) => d.line.length > 0)
+    .slice(0, 4);
+}
 
 type SceneBreakdown = {
   title: string;
@@ -244,7 +283,7 @@ type SceneBreakdown = {
 
 function defaultArtStyle(rating: Rating): string {
   return rating === "teens"
-    ? "polished cinematic 3D animation, dynamic lighting, rich detailed color palette, PG-13"
+    ? "polished cinematic 3D animation, dynamic lighting, rich detailed color palette, PG"
     : "bright and colorful 3D animated children's movie, soft rounded shapes, warm friendly lighting";
 }
 
@@ -260,8 +299,8 @@ export async function storyToScenes(
   const styleNote = stylePrompt
     ? `Use this EXACT art style for every scene: ${stylePrompt}.`
     : rating === "teens"
-      ? "Use a polished, cinematic animated style suitable for teens; moderate " +
-        "stylized action is okay, but keep it within PG-13."
+      ? "Use a polished, cinematic animated style for older kids; mild " +
+        "stylized action is okay, but keep it within PG."
       : "Use a colorful 3D animated children's movie style.";
 
   try {
@@ -276,12 +315,15 @@ export async function storyToScenes(
           content:
             "You turn a student's short story into a storyboard for an animated movie. " +
             "Break the story into 2-4 scenes that flow in order. " +
-            'Reply ONLY as JSON: {"title": string, "artStyle": string, "characters": [{"name": string, "look": string}], "scenes": [{"title": string, "narration": string, "prompt": string}], "adjustedForSafety": boolean, "safetyNote": string}. ' +
+            'Reply ONLY as JSON: {"title": string, "artStyle": string, "characters": [{"name": string, "look": string, "voice": "male" | "female" | "neutral"}], "scenes": [{"title": string, "narration": string, "prompt": string, "question": string, "dialogue": [{"speaker": string, "line": string}]}], "adjustedForSafety": boolean, "safetyNote": string}. ' +
             "title: a fun movie title for the story. " +
             "artStyle: ONE detailed sentence describing a single, consistent art style for the ENTIRE movie (medium, rendering, color palette, mood, lighting). The SAME style must be used for every scene. " +
             "characters: for EVERY important recurring character, give a fixed, detailed visual description (species/age, hair, skin/fur color, clothing colors, distinguishing features) so they look IDENTICAL in every scene. Each look under 25 words. " +
+            "voice: each character's voice gender — \"male\" for boys/men/male animals, \"female\" for girls/women/female animals, or \"neutral\" only when the gender is genuinely unknown or not applicable. Infer from the story's pronouns and names. " +
             "narration: one sentence describing the scene in the writer's voice. " +
             "prompt: a vivid text-to-video prompt focused on action, camera, setting, and mood. Refer to characters by name; do NOT restate their physical look or the art style (those are added automatically). " +
+            "question: one warm, SPECIFIC, open-ended question (under 18 words) that nudges the young writer to add a vivid detail to THIS particular scene. It must reference something concrete that actually happens in this scene (a character, object, place, or action by name) and dig into the senses, feelings, motivation, or what something looks/sounds/feels like. Never generic like 'What colors do you see?'. " +
+            "dialogue: 1-3 short spoken lines for THIS scene that the characters could say out loud (each under 20 words). Use the EXACT character names from the characters list as the speaker; use \"Narrator\" only for essential narration. Keep it natural, age-appropriate, and matched to the audience guidelines. If a scene has no one speaking, use an empty array. " +
             "IMPORTANT: If the original story contains ANYTHING that does not fit the audience guidelines (for example violence, weapons, blood, alcohol, drugs, smoking, scary or rude content) and you change, remove, soften, or tone down that part when writing the scenes, you MUST set adjustedForSafety to true. Only set it to false when the original story needed NO changes at all. " +
             "adjustedForSafety: boolean as described above. " +
             "safetyNote: if adjustedForSafety is true, one short, gentle, kid-friendly sentence describing the KIND of change you made to keep it appropriate (do NOT repeat the inappropriate content); otherwise an empty string. " +
@@ -300,6 +342,8 @@ export async function storyToScenes(
           title: String(s.title || "A Scene"),
           narration: String(s.narration || ""),
           prompt: String(s.prompt || ""),
+          question: String(s.question || ""),
+          dialogue: sanitizeDialogue(s.dialogue),
         }))
       : [];
     if (scenes.length === 0) return mockScenes(story, rating);
@@ -309,6 +353,8 @@ export async function storyToScenes(
           .map((c: Partial<StyleCharacter>) => ({
             name: String(c.name || "").trim(),
             look: String(c.look || "").trim(),
+            voice:
+              c.voice === "male" || c.voice === "female" ? c.voice : "neutral",
           }))
           .filter((c: StyleCharacter) => c.name && c.look)
       : [];
@@ -350,6 +396,8 @@ function mockScenes(
       title: `Scene ${i + 1}`,
       narration: part,
       prompt: `Colorful 3D animated children's movie scene: ${part}`,
+      question: curiousQuestion(part),
+      dialogue: [],
     });
   }
 
@@ -391,12 +439,64 @@ function buildVisualPrompt(
 ): string {
   const fallback =
     rating === "teens"
-      ? "Polished cinematic animated film still, detailed and dynamic, PG-13."
+      ? "Polished cinematic animated film still, detailed and dynamic, PG."
       : "Bright, colorful, friendly 3D animated children's movie still.";
   const preamble = styleGuidePreamble(styleGuide) || fallback;
   // Lead with this scene's own action so each panel is a distinct picture,
   // then the shared style/character preamble keeps them on-model.
   return `Scene: ${description}. ${preamble}`;
+}
+
+/**
+ * Prompt used when redrawing a scene FROM the character reference sheet with a
+ * reference-capable model. The image carries the character looks, so we tell
+ * the model to keep them identical and only change the action/setting.
+ */
+function buildReferencedScenePrompt(
+  description: string,
+  styleGuide?: StyleGuide
+): string {
+  const names =
+    styleGuide && styleGuide.characters.length > 0
+      ? styleGuide.characters.map((c) => c.name).join(", ")
+      : "the characters";
+  const style = styleGuide?.artStyle ? ` Art style: ${styleGuide.artStyle}.` : "";
+  return (
+    `Using the same characters (${names}) from the reference image — keeping ` +
+    `their faces, hair, colors, outfits, and art style EXACTLY the same — ` +
+    `draw a brand-new storyboard scene: ${description}. Only change the action, ` +
+    `poses, camera angle, and setting; do not change how the characters look.${style}`
+  );
+}
+
+/** Prompt for the one-time character reference sheet (the consistency anchor). */
+function buildReferenceSheetPrompt(styleGuide: StyleGuide): string {
+  const cast = styleGuide.characters
+    .map((c) => `${c.name} (${c.look})`)
+    .join("; ");
+  return (
+    `Character reference sheet for an animated movie. Art style: ` +
+    `${styleGuide.artStyle}. Show the full cast standing together, full body, ` +
+    `facing forward in friendly neutral poses, evenly lit on a plain light ` +
+    `studio background, clearly separated so each character is fully visible. ` +
+    `The cast: ${cast}. No text, no labels, no watermark.`
+  );
+}
+
+/**
+ * Draws the canonical character reference sheet once per storyboard. Every
+ * scene is later generated from this anchor for cross-frame consistency.
+ */
+async function generateReferenceSheet(
+  styleGuide: StyleGuide,
+  rating: Rating
+): Promise<string | null> {
+  if (!hasImageAI || !hasRefModel) return null;
+  if (styleGuide.characters.length === 0) return null; // nothing to anchor
+  const url = await generateImage(buildReferenceSheetPrompt(styleGuide));
+  if (!url) return null;
+  const check = await moderateImageUrl(url, rating);
+  return check.safe ? url : null;
 }
 
 function buildVideoPrompt(
@@ -406,7 +506,7 @@ function buildVideoPrompt(
 ): string {
   const fallback =
     rating === "teens"
-      ? "Cinematic animated film clip with smooth motion, PG-13."
+      ? "Cinematic animated film clip with smooth motion, PG."
       : "Colorful, friendly 3D animated children's movie clip with smooth motion.";
   const preamble = styleGuidePreamble(styleGuide) || fallback;
   return `Scene: ${description}. ${preamble}`;
@@ -421,32 +521,52 @@ function buildMotionPrompt(description: string): string {
   return `${description}. Bring this image to life with smooth, natural animation and gentle camera movement; keep the characters, colors, and art style exactly the same as the image.`;
 }
 
-async function generateImage(prompt: string): Promise<string | null> {
+async function generateImage(
+  prompt: string,
+  referenceImages?: string[]
+): Promise<string | null> {
   if (!hasImageAI) return null;
+  const useRef =
+    hasRefModel && Array.isArray(referenceImages) && referenceImages.length > 0;
   try {
     const replicate = new Replicate({
       auth: REPLICATE_API_TOKEN,
       useFileOutput: false,
     });
-    // No fixed seed: a fresh seed each time gives each scene its own
-    // composition, while the prompt keeps characters and style consistent.
+
+    const input: Record<string, unknown> = {
+      prompt,
+      aspect_ratio: "16:9",
+      output_format: "jpg",
+    };
+    if (useRef) {
+      // Condition on the character reference sheet so the SAME characters and
+      // art style are redrawn in this new scene (consistency between frames).
+      input[IMAGE_REF_KEY] = IMAGE_REF_KEY_ARRAY
+        ? referenceImages
+        : referenceImages![0];
+    } else {
+      // No fixed seed: a fresh seed each time gives each scene its own
+      // composition, while the prompt keeps characters and style consistent.
+      input.num_outputs = 1;
+    }
+
     const output = await withRetry(
       () =>
-        replicate.run(IMAGE_MODEL, {
-          input: {
-            prompt,
-            aspect_ratio: "16:9",
-            output_format: "jpg",
-            num_outputs: 1,
-          },
-        }),
-      "generateImage"
+        replicate.run(
+          (useRef ? IMAGE_REF_MODEL : IMAGE_MODEL) as `${string}/${string}`,
+          { input }
+        ),
+      useRef ? "generateImageRef" : "generateImage"
     );
     if (typeof output === "string") return output;
     if (Array.isArray(output) && output.length > 0) return String(output[0]);
     return null;
   } catch (err) {
-    console.error("generateImage failed:", err);
+    console.error(`generateImage failed (ref=${useRef}):`, err);
+    // If the reference model failed, retry once WITHOUT a reference so the
+    // student still gets a picture (text-only consistency).
+    if (useRef) return generateImage(prompt);
     return null;
   }
 }
@@ -458,7 +578,14 @@ export async function generateSceneImage(
   styleGuide?: StyleGuide
 ): Promise<{ imageUrl: string | null; imageBlocked?: boolean; mock: boolean }> {
   if (!hasImageAI) return { imageUrl: null, mock: true };
-  const url = await generateImage(buildVisualPrompt(description, rating, styleGuide));
+  // If we have a character reference sheet, redraw THIS scene from it so the
+  // cast stays identical between frames; otherwise fall back to a text prompt.
+  const ref = styleGuide?.referenceImage;
+  const url = ref
+    ? await generateImage(buildReferencedScenePrompt(description, styleGuide), [
+        ref,
+      ])
+    : await generateImage(buildVisualPrompt(description, rating, styleGuide));
   if (!url) return { imageUrl: null, mock: true };
   const check = await moderateImageUrl(url, rating);
   if (!check.safe) return { imageUrl: null, imageBlocked: true, mock: false };
@@ -492,10 +619,15 @@ export async function buildStoryboardScenes(
   } = await storyToScenes(story, rating, stylePrompt);
   const stamp = Date.now();
   const styleGuide: StyleGuide = { artStyle, characters };
+  // Draw the canonical character sheet once; every scene is then generated
+  // from it (reference-conditioned) so characters stay consistent.
+  styleGuide.referenceImage = await generateReferenceSheet(styleGuide, rating);
   const scenes: StoryboardScene[] = rawScenes.map((raw, index) => ({
     id: `panel-${index + 1}-${stamp}`,
     title: raw.title,
     description: raw.narration || raw.prompt,
+    question: raw.question || undefined,
+    script: raw.dialogue.length > 0 ? raw.dialogue : undefined,
     imageUrl: null,
     palette: PALETTES[index % PALETTES.length],
     mock: !hasImageAI,
@@ -518,6 +650,7 @@ export type VideoSceneInput = {
   description: string;
   palette?: string;
   imageUrl?: string | null;
+  script?: ScriptLine[];
 };
 
 /** Starts a video generation for each (approved, possibly edited) scene. */
@@ -546,6 +679,7 @@ export async function startScenes(
       id: input.id || `scene-${index + 1}-${Date.now()}`,
       title: input.title,
       narration: input.description,
+      script: input.script && input.script.length > 0 ? input.script : undefined,
       prompt,
       imageUrl: input.imageUrl ?? null,
       predictionId: null,

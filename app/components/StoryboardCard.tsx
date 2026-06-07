@@ -1,25 +1,33 @@
 "use client";
 
 import { useRef } from "react";
-import type { StoryboardScene } from "@/lib/types";
+import type { ScriptLine, StoryboardScene, StyleCharacter } from "@/lib/types";
 import { curiousQuestion } from "@/lib/curiosity";
 import SpeakButton from "./SpeakButton";
+import ScriptEditor from "./ScriptEditor";
 
 export default function StoryboardCard({
   scene,
   index,
   redrawing,
+  characters,
   onChange,
   onRedraw,
+  onRemove,
 }: {
   scene: StoryboardScene;
   index: number;
   redrawing: boolean;
+  /** Characters from the story bible, suggested as script speakers. */
+  characters: StyleCharacter[];
   onChange: (patch: Partial<StoryboardScene>) => void;
   onRedraw: () => void;
+  /** When provided, shows a control to delete this scene from the storyboard. */
+  onRemove?: () => void;
 }) {
   const descRef = useRef<HTMLTextAreaElement>(null);
-  const question = curiousQuestion(scene.description);
+  // Prefer the AI's scene-specific question; fall back to a rich heuristic one.
+  const question = scene.question?.trim() || curiousQuestion(scene.description);
 
   function focusDescription() {
     const el = descRef.current;
@@ -40,6 +48,18 @@ export default function StoryboardCard({
           className="w-full rounded-lg bg-transparent px-1 text-lg font-semibold text-purple-700 outline-none focus:bg-purple-50"
           aria-label={`Scene ${index + 1} title`}
         />
+        {onRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            disabled={redrawing}
+            aria-label={`Remove scene ${index + 1}`}
+            title="Remove this scene"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-gray-400 transition hover:bg-rose-100 hover:text-rose-600 active:scale-95 disabled:opacity-40"
+          >
+            ✕
+          </button>
+        )}
       </div>
 
       {/* Image preview */}
@@ -64,7 +84,8 @@ export default function StoryboardCard({
               </div>
             ) : (
               <p className="animate-bob text-base font-semibold leading-snug text-white drop-shadow-md">
-                {scene.description}
+                {scene.description.trim() ||
+                  "Describe this picture, then tap Redraw ✏️"}
               </p>
             )}
           </div>
@@ -105,6 +126,14 @@ export default function StoryboardCard({
         rows={3}
         placeholder="Describe what happens in this scene..."
         className="mt-2 w-full resize-none rounded-xl border-2 border-purple-100 bg-purple-50/40 p-2 text-sm leading-relaxed text-gray-800 outline-none transition focus:border-purple-300 focus:bg-white"
+      />
+
+      <ScriptEditor
+        script={scene.script ?? []}
+        characters={characters}
+        onChange={(script: ScriptLine[]) =>
+          onChange({ script: script.length > 0 ? script : undefined })
+        }
       />
 
       <div className="mt-2 flex gap-2">

@@ -75,16 +75,16 @@ lib/
 
 Story Studio supports two selectable audiences (chosen at the top of the writing panel; the choice is remembered):
 
-- **Younger Kids — G/PG (ages ~7-11):** the strictest setting. Blocks profanity, slurs, sexual content, violence, scary content, drugs/alcohol, etc.
-- **Teens — PG-13 (middle & early high school, ages ~11-15):** allows mild language and moderate, stylized action/cartoon violence (e.g. a bug getting smashed, fantasy combat, mild peril) while still blocking nudity, sexual content, strong profanity, slurs, **graphic gore**, hard drugs, and self-harm.
+- **Younger Kids — G (for everyone):** the strictest setting, suitable for general audiences of all ages. Blocks profanity, slurs, sexual content, violence, scary content, drugs/alcohol, etc.
+- **Teens — PG (parental guidance):** allows only mild, stylized cartoon/fantasy action (e.g. a bug getting squished, a monster scared off, mild peril) while still blocking nudity, sexual content, profanity, slurs, **graphic gore**, blood, drugs/alcohol, and self-harm.
 
-The selected rating drives three things: the AI generation guidelines, the text-moderation thresholds, and the video frame-check thresholds. For example, the story *"the knight smashed the giant bug in an epic battle"* is blocked for **Younger Kids** but allowed for **Teens**, while a *gory, bloody* story is blocked for **both**.
+The selected rating drives three things: the AI generation guidelines, the text-moderation thresholds, and the video frame-check thresholds. For example, the story *"the knight bopped the giant bug in a silly tussle"* may be allowed for **Teens (PG)** but softened for **Younger Kids (G)**, while a *gory, bloody* story is blocked for **both**.
 
 ## Content safety
 
 Every movie and every piece of writing feedback passes a safety check (at the selected rating) before anything is generated or shown. This is enforced with layers of defense:
 
-1. **Strict PG instructions** are injected into every AI prompt (no nudity, profanity, extreme violence, horror, drugs/alcohol, hate, etc. — see `PG_GUIDELINES` in `lib/safety.ts`).
+1. **Strict G/PG instructions** are injected into every AI prompt (no nudity, profanity, extreme violence, horror, drugs/alcohol, hate, etc. — see `G_GUIDELINES` / `PG_GUIDELINES` in `lib/safety.ts`).
 2. **The child's story is screened first.** If it fails the check, no movie/feedback is produced — instead a gentle "let's keep it kid-friendly" message invites them to try again.
 3. **The AI-generated scene prompts are re-screened** before any text is sent to the video model.
 4. **Two text screening layers run together:**

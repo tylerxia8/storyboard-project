@@ -1,45 +1,51 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { speak, speechSupported, stopSpeaking } from "@/lib/speech";
-
-const SPEAK_EVENT = "storystudio:speakstart";
+import { useEffect, useRef, useState } from "react";
+import type { VoiceGender } from "@/lib/types";
+import { playLines, SPEECH_START_EVENT, type SpeechController } from "@/lib/tts";
 
 export default function SpeakButton({
   text,
   label = "Read aloud",
   className = "",
+  speaker = "Narrator",
+  gender = "neutral",
 }: {
   text: string;
   label?: string;
   className?: string;
+  /** Who is speaking — used to pick a matching TTS voice. */
+  speaker?: string;
+  gender?: VoiceGender;
 }) {
   const [speaking, setSpeaking] = useState(false);
-  const [supported, setSupported] = useState(false);
+  const ctrlRef = useRef<SpeechController | null>(null);
 
   useEffect(() => {
-    setSupported(speechSupported());
-    // When any other SpeakButton starts, reset this one's state.
-    const reset = () => setSpeaking(false);
-    window.addEventListener(SPEAK_EVENT, reset);
+    // When any other SpeakButton (or dialogue player) starts, stop this one.
+    const reset = () => {
+      ctrlRef.current?.stop();
+      setSpeaking(false);
+    };
+    window.addEventListener(SPEECH_START_EVENT, reset);
     return () => {
-      window.removeEventListener(SPEAK_EVENT, reset);
-      stopSpeaking();
+      window.removeEventListener(SPEECH_START_EVENT, reset);
+      ctrlRef.current?.stop();
     };
   }, []);
 
-  if (!supported) return null;
-
   function toggle() {
     if (speaking) {
-      stopSpeaking();
+      ctrlRef.current?.stop();
       setSpeaking(false);
       return;
     }
     if (!text.trim()) return;
-    window.dispatchEvent(new Event(SPEAK_EVENT)); // stop other buttons
-    const ok = speak(text, () => setSpeaking(false));
-    if (ok) setSpeaking(true);
+    // playLines() stops any other audio and broadcasts SPEECH_START_EVENT.
+    ctrlRef.current = playLines([{ text, speaker, gender }], () =>
+      setSpeaking(false)
+    );
+    setSpeaking(true);
   }
 
   return (

@@ -27,7 +27,11 @@ export async function POST(req: NextRequest) {
     const inputCheck = await moderateText(story, rating);
     if (!inputCheck.safe) {
       console.warn("Storyboard blocked (story):", inputCheck.categories);
-      return NextResponse.json({ blocked: true, message: inputCheck.kidMessage });
+      return NextResponse.json({
+        blocked: true,
+        message: inputCheck.kidMessage,
+        terms: inputCheck.flaggedTerms ?? [],
+      });
     }
 
     const board = await buildStoryboardScenes(story, rating, stylePrompt);
@@ -39,7 +43,11 @@ export async function POST(req: NextRequest) {
     const outputCheck = await moderateText(generatedText, rating);
     if (!outputCheck.safe) {
       console.warn("Storyboard blocked (generated):", outputCheck.categories);
-      return NextResponse.json({ blocked: true, message: outputCheck.kidMessage });
+      return NextResponse.json({
+        blocked: true,
+        message: outputCheck.kidMessage,
+        terms: outputCheck.flaggedTerms ?? [],
+      });
     }
 
     return NextResponse.json({
