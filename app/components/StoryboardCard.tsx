@@ -1,6 +1,8 @@
 "use client";
 
+import { useRef } from "react";
 import type { StoryboardScene } from "@/lib/types";
+import { curiousQuestion } from "@/lib/curiosity";
 import SpeakButton from "./SpeakButton";
 
 export default function StoryboardCard({
@@ -16,6 +18,16 @@ export default function StoryboardCard({
   onChange: (patch: Partial<StoryboardScene>) => void;
   onRedraw: () => void;
 }) {
+  const descRef = useRef<HTMLTextAreaElement>(null);
+  const question = curiousQuestion(scene.description);
+
+  function focusDescription() {
+    const el = descRef.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }
+
   return (
     <div className="animate-pop rounded-3xl bg-white p-3 shadow-lg ring-2 ring-purple-100">
       <div className="mb-2 flex items-center gap-2 px-1">
@@ -72,8 +84,22 @@ export default function StoryboardCard({
         )}
       </div>
 
+      {/* Curious-audience question that invites the student to add detail */}
+      <button
+        type="button"
+        onClick={focusDescription}
+        className="mt-2 flex w-full items-center gap-2 rounded-xl bg-sky-50 px-3 py-2 text-left text-sm text-sky-700 ring-1 ring-sky-100 transition hover:bg-sky-100 active:scale-[0.99]"
+      >
+        <span className="text-base">💭</span>
+        <span>
+          {question}{" "}
+          <span className="font-semibold text-sky-500">Add it →</span>
+        </span>
+      </button>
+
       {/* Editable description */}
       <textarea
+        ref={descRef}
         value={scene.description}
         onChange={(e) => onChange({ description: e.target.value })}
         rows={3}

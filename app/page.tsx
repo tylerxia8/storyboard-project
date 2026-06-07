@@ -22,6 +22,8 @@ import WritingChecklist from "./components/WritingChecklist";
 import WordBoosters from "./components/WordBoosters";
 import DictateButton from "./components/DictateButton";
 import SavedStories from "./components/SavedStories";
+import GlowUpMeter from "./components/GlowUpMeter";
+import { scoreStory } from "@/lib/storyScore";
 
 export default function Home() {
   const [story, setStory] = useState("");
@@ -39,6 +41,11 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [safetyMessage, setSafetyMessage] = useState<string | null>(null);
   const [adjustNotice, setAdjustNotice] = useState<string | null>(null);
+  const [celebration, setCelebration] = useState<{
+    title: string;
+    subtitle?: string;
+    showCompare?: boolean;
+  } | null>(null);
 
   const [versions, setVersions] = useState<StoryboardVersion[]>([]);
   const [comparing, setComparing] = useState(false);
@@ -49,7 +56,28 @@ export default function Home() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const ratingRef = useRef<Rating>(rating);
   const skipDraftSave = useRef(true);
+  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const lastScoreRef = useRef<number | null>(null);
+  const celebrateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wordCount = story.trim() ? story.trim().split(/\s+/).length : 0;
+
+  function focusEditor() {
+    const el = editorRef.current;
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }
+
+  function celebrate(c: {
+    title: string;
+    subtitle?: string;
+    showCompare?: boolean;
+  }) {
+    setCelebration(c);
+    if (celebrateTimer.current) clearTimeout(celebrateTimer.current);
+    celebrateTimer.current = setTimeout(() => setCelebration(null), 6000);
+  }
 
   // Restore rating, the in-progress draft, and saved stories on first load.
   useEffect(() => {
@@ -168,6 +196,9 @@ export default function Home() {
   async function makeStoryboard() {
     clearBanners();
     setComparing(false);
+    const hadPrevious = Boolean(storyboard);
+    const newScore = scoreStory(story).score;
+    const prevScore = lastScoreRef.current;
     // Save the current storyboard as a previous draft before replacing it.
     if (storyboard) {
       setVersions((prev) => [
@@ -204,6 +235,15 @@ export default function Home() {
             "We gently adjusted a few parts of your story to keep it right for the chosen audience."
         );
       }
+      // Reward a revision: celebrate when a re-made storyboard improved.
+      if (hadPrevious && prevScore !== null && newScore > prevScore) {
+        celebrate({
+          title: `You made your story better! +${newScore - prevScore} points ✨`,
+          subtitle: "Your revising is paying off — keep it up!",
+          showCompare: true,
+        });
+      }
+      lastScoreRef.current = newScore;
       // Stream preview images in one scene at a time (kept responsive).
       void generateInitialImages(board.scenes, board.styleGuide);
     } catch (e) {
@@ -281,6 +321,9 @@ export default function Home() {
         imageBlocked: data.imageBlocked,
         mock: data.mock,
       });
+      if (!data.mock && data.imageUrl) {
+        celebrate({ title: "Nice edit! Your scene got a glow-up ✨" });
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
@@ -462,6 +505,7 @@ export default function Home() {
             </div>
 
             <textarea
+              ref={editorRef}
               value={story}
               onChange={(e) => setStory(e.target.value)}
               placeholder="Once upon a time..."
@@ -484,6 +528,8 @@ export default function Home() {
               </button>
             </div>
           </div>
+
+          {story.trim() && <GlowUpMeter story={story} />}
 
           <WritingChecklist story={story} />
 
@@ -587,10 +633,17 @@ export default function Home() {
                 {feedback.suggestions.map((s, i) => (
                   <li
                     key={i}
-                    className="flex gap-2 rounded-2xl bg-purple-50 p-3 text-gray-700"
+                    className="flex items-center gap-2 rounded-2xl bg-purple-50 p-3 text-gray-700"
                   >
                     <span>✨</span>
-                    <span>{s}</span>
+                    <span className="flex-1">{s}</span>
+                    <button
+                      type="button"
+                      onClick={focusEditor}
+                      className="shrink-0 rounded-full bg-purple-500 px-3 py-1 text-xs font-bold text-white shadow-sm transition hover:bg-purple-400 active:scale-95"
+                    >
+                      Try it ✏️
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -842,6 +895,38 @@ export default function Home() {
           🎨 Practice Mode: scenes are colorful placeholders. Add AI keys to
           generate real images and videos.
         </footer>
+      )}
+
+      {celebration && (
+        <div className="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-center px-4">
+          <div className="animate-pop pointer-events-auto flex max-w-md items-center gap-3 rounded-3xl bg-gradient-to-r from-fuchsia-500 via-purple-500 to-pink-500 px-5 py-4 text-white shadow-2xl ring-4 ring-white/40">
+            <span className="text-3xl">🎉</span>
+            <div className="flex-1">
+              <p className="font-bold leading-tight">{celebration.title}</p>
+              {celebration.subtitle && (
+                <p className="text-sm text-white/90">{celebration.subtitle}</p>
+              )}
+            </div>
+            {celebration.showCompare && versions.length > 0 && (
+              <button
+                onClick={() => {
+                  setComparing(true);
+                  setCelebration(null);
+                }}
+                className="shrink-0 rounded-full bg-white px-3 py-1.5 text-sm font-bold text-purple-700 shadow transition hover:bg-white/90 active:scale-95"
+              >
+                See what changed →
+              </button>
+            )}
+            <button
+              onClick={() => setCelebration(null)}
+              aria-label="Dismiss"
+              className="shrink-0 text-white/80 transition hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
