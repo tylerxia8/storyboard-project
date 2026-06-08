@@ -34,12 +34,21 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Renders the story with any flagged words wrapped in a highlight, so a child
-// can see exactly which parts to change.
-function highlightStory(text: string, terms: string[]) {
-  const cleaned = terms.map((t) => t.trim()).filter(Boolean);
-  if (cleaned.length === 0) return text;
-  const re = new RegExp(`(${cleaned.map(escapeRegExp).join("|")})`, "gi");
+// Highlights the exact flagged sentence(s) first; falls back to word chips only
+// when no snippet is available.
+function highlightText(
+  text: string,
+  terms: string[],
+  snippets: string[]
+) {
+  const snippetNeedles = [...snippets]
+    .sort((a, b) => b.length - a.length)
+    .filter(Boolean);
+  const termNeedles = terms.map((t) => t.trim()).filter(Boolean);
+  const needles =
+    snippetNeedles.length > 0 ? snippetNeedles : termNeedles;
+  if (needles.length === 0) return text;
+  const re = new RegExp(`(${needles.map(escapeRegExp).join("|")})`, "gi");
   const parts = text.split(re);
   return parts.map((part, i) =>
     i % 2 === 1 ? (
@@ -81,6 +90,14 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [safetyMessage, setSafetyMessage] = useState<string | null>(null);
   const [safetyTerms, setSafetyTerms] = useState<string[]>([]);
+  const [safetyReasons, setSafetyReasons] = useState<string[]>([]);
+  /** Exact sentence(s) flagged — shown every time so repeat blocks stay clear. */
+  const [safetySnippets, setSafetySnippets] = useState<string[]>([]);
+  /** Where the student should edit: main story, a storyboard scene, or scenes. */
+  const [safetyWhere, setSafetyWhere] = useState<
+    "story" | "storyboard" | "scene"
+  >("story");
+  const [safetySceneLabel, setSafetySceneLabel] = useState<string | null>(null);
   const [adjustNotice, setAdjustNotice] = useState<string | null>(null);
   const [celebration, setCelebration] = useState<{
     title: string;
@@ -245,7 +262,27 @@ export default function Home() {
     setError(null);
     setSafetyMessage(null);
     setSafetyTerms([]);
+    setSafetyReasons([]);
+    setSafetySnippets([]);
+    setSafetyWhere("story");
+    setSafetySceneLabel(null);
     setAdjustNotice(null);
+  }
+
+  function showSafetyBlock(data: {
+    message?: string;
+    terms?: string[];
+    reasons?: string[];
+    snippets?: string[];
+    where?: "story" | "storyboard" | "scene";
+    sceneLabel?: string;
+  }) {
+    setSafetyTerms(data.terms ?? []);
+    setSafetyReasons(data.reasons ?? []);
+    setSafetySnippets(data.snippets ?? []);
+    setSafetyWhere(data.where ?? "story");
+    setSafetySceneLabel(data.sceneLabel ?? null);
+    setSafetyMessage(data.message ?? "Let's keep it appropriate.");
   }
 
   async function getFeedback() {
@@ -260,7 +297,16 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not get tips.");
-      if (data.blocked) return setSafetyMessage(data.message as string);
+      if (data.blocked) {
+        showSafetyBlock({
+          message: data.message as string,
+          terms: (data.terms as string[]) ?? [],
+          reasons: (data.reasons as string[]) ?? [],
+          snippets: (data.snippets as string[]) ?? [],
+          where: "story",
+        });
+        return;
+      }
       setFeedback(data as FeedbackResponse);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
@@ -303,8 +349,13 @@ export default function Home() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not make storyboard.");
       if (data.blocked) {
-        setSafetyTerms((data.terms as string[]) ?? []);
-        setSafetyMessage(data.message as string);
+        showSafetyBlock({
+          message: data.message as string,
+          terms: (data.terms as string[]) ?? [],
+          reasons: (data.reasons as string[]) ?? [],
+          snippets: (data.snippets as string[]) ?? [],
+          where: "story",
+        });
         return;
       }
       const board = data as StoryboardResponse;
@@ -349,6 +400,10 @@ export default function Home() {
       imageBlocked?: boolean;
       mock?: boolean;
       blocked?: boolean;
+      message?: string;
+      terms?: string[];
+      reasons?: string[];
+      snippets?: string[];
     };
   }
 
@@ -437,10 +492,17 @@ export default function Home() {
     setRedrawing((r) => ({ ...r, [scene.id]: true }));
     try {
       const data = await fetchSceneImage(scene, storyboard?.styleGuide);
-      if (data.blocked)
-        return setSafetyMessage(
-          (data as { message?: string }).message || "Let's keep it appropriate."
-        );
+      if (data.blocked) {
+        showSafetyBlock({
+          message: data.message,
+          terms: data.terms,
+          reasons: data.reasons,
+          snippets: data.snippets,
+          where: "scene",
+          sceneLabel: `${scene.title}`,
+        });
+        return;
+      }
       updateScene(scene.id, {
         imageUrl: data.imageUrl ?? null,
         imageBlocked: data.imageBlocked,
@@ -482,8 +544,13 @@ export default function Home() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not make video.");
       if (data.blocked) {
-        setSafetyTerms((data.terms as string[]) ?? []);
-        setSafetyMessage(data.message as string);
+        showSafetyBlock({
+          message: data.message as string,
+          terms: (data.terms as string[]) ?? [],
+          reasons: (data.reasons as string[]) ?? [],
+          snippets: (data.snippets as string[]) ?? [],
+          where: "storyboard",
+        });
         return;
       }
       const movieData = { ...(data as MovieResponse), title: storyboard.title };
@@ -539,6 +606,131 @@ export default function Home() {
   const imagesReady = storyboard
     ? storyboard.scenes.filter((s) => s.imageUrl || s.imageBlocked).length
     : 0;
+
+  // Words to show only when they appear inside a flagged sentence — not elsewhere.
+  const presentTerms = safetyTerms.filter((t) =>
+    safetySnippets.some((s) => s.toLowerCase().includes(t.toLowerCase()))
+  );
+
+  // Always show at least the server-computed snippets so repeat blocks stay clear.
+  const editSnippets =
+    safetySnippets.length > 0
+      ? safetySnippets
+      : presentTerms.length > 0
+        ? presentTerms.map((t) => `The word “${t}” needs to change.`)
+        : [];
+
+  const whereHint =
+    safetyWhere === "scene" && safetySceneLabel
+      ? `Edit storyboard scene “${safetySceneLabel}” (or your main story).`
+      : safetyWhere === "storyboard"
+        ? "Edit the matching storyboard scene below, or change your main story."
+        : "Edit the highlighted part(s) in your story on the left.";
+
+  // "Make it kid-friendly!" helper. Lives in the My Storyboard panel so it's
+  // front-and-center, and spells out exactly what to change every time.
+  const safetyBanner = safetyMessage ? (
+    <div className="animate-pop rounded-3xl border-2 border-rose-300 bg-rose-50 p-5 text-rose-900 shadow-lg ring-2 ring-rose-200">
+      <div className="flex items-start gap-3">
+        <span className="text-3xl">🛟</span>
+        <div className="min-w-0 flex-1">
+          <p className="text-lg font-extrabold text-rose-700">
+            {rating === "teens"
+              ? "Let's keep it within PG!"
+              : "Let's keep it kid-friendly!"}
+          </p>
+          <p className="mt-1 text-rose-800">{safetyMessage}</p>
+          <p className="mt-2 text-sm font-semibold text-rose-600">{whereHint}</p>
+
+          <div className="mt-4 rounded-2xl bg-white p-4 ring-1 ring-rose-100">
+            <p className="text-sm font-extrabold uppercase tracking-wide text-rose-600">
+              📍 Where to edit
+            </p>
+
+            {editSnippets.length > 0 ? (
+              <ol className="mt-2 space-y-2">
+                {editSnippets.map((snippet, i) => (
+                  <li
+                    key={`${i}-${snippet.slice(0, 24)}`}
+                    className="flex gap-2 text-sm leading-relaxed text-gray-800"
+                  >
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-500 text-xs font-bold text-white">
+                      {i + 1}
+                    </span>
+                    <p className="min-w-0 flex-1 rounded-xl bg-rose-50/80 p-2.5 ring-1 ring-rose-100">
+                      {highlightText(snippet, presentTerms, [snippet])}
+                    </p>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="mt-2 text-sm text-gray-600">
+                Read through your story and soften any parts that feel too intense
+                for {rating === "teens" ? "PG" : "G"}.
+              </p>
+            )}
+
+            <div className="mt-4 border-t border-rose-100 pt-3">
+              <p className="text-sm font-extrabold uppercase tracking-wide text-rose-600">
+                ✏️ What to change
+              </p>
+              <ul className="mt-2 space-y-1.5">
+                {(safetyReasons.length > 0
+                  ? safetyReasons
+                  : [
+                      "Soften this part so it fits your audience, then try again.",
+                    ]
+                ).map((r, i) => (
+                  <li
+                    key={i}
+                    className="flex items-start gap-2 text-sm font-medium text-gray-700"
+                  >
+                    <span className="mt-0.5 text-rose-500">•</span>
+                    <span>{r}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {presentTerms.length > 0 && (
+              <div className="mt-3">
+                <p className="text-sm font-bold text-rose-600">Words to fix:</p>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {presentTerms.map((t, i) => (
+                    <span
+                      key={`${t}-${i}`}
+                      className="rounded-full bg-rose-100 px-2.5 py-1 text-sm font-bold text-rose-700 ring-1 ring-rose-200"
+                    >
+                      “{t}”
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {safetyWhere === "story" && story.trim().length > 0 && (
+              <div className="mt-3">
+                <p className="text-sm font-bold text-rose-600">
+                  Your story (problem parts highlighted):
+                </p>
+                <p className="mt-1.5 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-xl bg-rose-50/60 p-3 text-sm leading-relaxed text-gray-700 ring-1 ring-rose-100">
+                  {highlightText(story, safetyTerms, safetySnippets)}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={focusEditor}
+            className="mt-4 rounded-full bg-rose-500 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-rose-400 active:scale-95"
+          >
+            ✏️ Go fix my story
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
 
   return (
     <div className="flex flex-1 flex-col">
@@ -702,51 +894,6 @@ export default function Home() {
             </div>
           )}
 
-          {safetyMessage && (
-            <div className="animate-pop flex items-start gap-3 rounded-3xl bg-sky-50 p-5 text-sky-800 shadow ring-2 ring-sky-200">
-              <span className="text-2xl">🛟</span>
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold text-sky-700">
-                  {rating === "teens"
-                    ? "Let's keep it within PG!"
-                    : "Let's keep it kid-friendly!"}
-                </p>
-                <p className="mt-1">{safetyMessage}</p>
-
-                {safetyTerms.length > 0 && (
-                  <div className="mt-3">
-                    <p className="text-sm font-semibold text-sky-700">
-                      Parts to change:
-                    </p>
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      {safetyTerms.map((t, i) => (
-                        <span
-                          key={`${t}-${i}`}
-                          className="rounded-full bg-rose-100 px-2.5 py-1 text-sm font-semibold text-rose-700 ring-1 ring-rose-200"
-                        >
-                          “{t}”
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {safetyTerms.some((t) =>
-                  story.toLowerCase().includes(t.toLowerCase())
-                ) && (
-                  <div className="mt-3">
-                    <p className="text-sm font-semibold text-sky-700">
-                      Here it is in your story:
-                    </p>
-                    <p className="mt-1.5 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-2xl bg-white p-3 text-sm leading-relaxed text-gray-700 ring-1 ring-sky-100">
-                      {highlightStory(story, safetyTerms)}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
           {adjustNotice && (
             <div className="animate-pop flex items-start gap-3 rounded-3xl bg-amber-50 p-5 text-amber-900 shadow ring-2 ring-amber-200">
               <span className="text-2xl">✏️</span>
@@ -887,8 +1034,11 @@ export default function Home() {
               )}
             </div>
 
+            {/* Make it kid-friendly! — shown right where students are looking. */}
+            {safetyBanner && <div className="mb-4">{safetyBanner}</div>}
+
             {/* Empty state */}
-            {!storyboard && !movie && !loadingStoryboard && (
+            {!storyboard && !movie && !loadingStoryboard && !safetyMessage && (
               <div className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-center text-gray-400">
                 <span className="animate-bob text-6xl">🎞️</span>
                 <p className="max-w-xs text-lg">

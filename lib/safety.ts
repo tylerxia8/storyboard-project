@@ -53,9 +53,178 @@ export type ModerationResult = {
   kidMessage: string;
   /** The specific words/phrases that tripped the filter, to highlight for kids. */
   flaggedTerms?: string[];
+  /** Plain, kid-friendly explanations of WHAT to change (one per problem kind). */
+  reasons?: string[];
+  /** Exact sentence(s) or lines from the checked text the student should edit. */
+  snippets?: string[];
 };
 
-// Always-on local filter so Practice Mode (no API key) is still protected.
+// ----------------------- Why-it-was-flagged reasons -----------------------
+
+// A clear, action-oriented sentence per problem "kind" so a student knows
+// exactly what to fix. Kept positive and concrete.
+const REASON_BY_KIND: Record<string, string> = {
+  language: "Swap any bad words or name-calling for kinder ones.",
+  hate: "Take out mean or hurtful words aimed at a person or group.",
+  violence:
+    "Make the fighting or getting-hurt parts gentler \u2014 no weapons, blood, or real harm.",
+  scary: "Tone down the really scary or creepy parts.",
+  sexual: "Keep romance friendly \u2014 no grown-up or body content.",
+  self_harm: "Remove anything about hurting yourself.",
+  substances: "Take out drugs, alcohol, smoking, or vaping.",
+  danger: "Take out the dangerous or against-the-rules activity.",
+};
+
+// Maps both our local filter labels AND OpenAI moderation categories onto the
+// shared "kinds" above, so we can explain either source the same friendly way.
+const KIND_BY_CATEGORY: Record<string, string> = {
+  // Local filter labels
+  profanity_strong: "language",
+  profanity_mild: "language",
+  slur: "hate",
+  sexual: "sexual",
+  self_harm: "self_harm",
+  violence_graphic: "violence",
+  violence_strong: "violence",
+  substances_hard: "substances",
+  substances_soft: "substances",
+  // OpenAI moderation categories
+  harassment: "hate",
+  "harassment/threatening": "hate",
+  hate: "hate",
+  "hate/threatening": "hate",
+  "sexual/minors": "sexual",
+  "self-harm": "self_harm",
+  "self-harm/intent": "self_harm",
+  "self-harm/instructions": "self_harm",
+  violence: "violence",
+  "violence/graphic": "violence",
+  illicit: "danger",
+  "illicit/violent": "violence",
+};
+
+/**
+ * Turns tripped category labels (local labels OR OpenAI categories, which may
+ * be suffixed with a score like "violence:0.82") into a de-duplicated list of
+ * plain, kid-friendly things to change.
+ */
+export function friendlyReasons(categories: string[]): string[] {
+  const kinds: string[] = [];
+  for (const raw of categories) {
+    const key = raw.split(":")[0].trim();
+    const kind = KIND_BY_CATEGORY[key];
+    if (kind && !kinds.includes(kind)) kinds.push(kind);
+  }
+  return kinds.map((k) => REASON_BY_KIND[k]).filter(Boolean);
+}
+
+/** Splits prose into sentence-ish chunks (handles newlines for storyboard text). */
+function splitSentences(text: string): string[] {
+  return (
+    text
+      .split(/\n+/)
+      .flatMap((block) =>
+        block.match(/[^.!?]+[.!?]*/g)?.map((s) => s.trim()) ?? [block.trim()]
+      )
+      .filter(Boolean) ?? []
+  );
+}
+
+/** Sentences containing words the rating actually blocks (never PG-allowed words). */
+function findProblemSnippetsLocal(text: string, rating: Rating): string[] {
+  const sentences = splitSentences(text);
+  if (sentences.length === 0) return text.trim() ? [text.trim()] : [];
+
+  const block = LOCAL_BLOCK[rating];
+  const terms = findFlaggedTerms(text, block);
+  const pick = (list: string[]) =>
+    sentences.filter((s) =>
+      list.some((t) => s.toLowerCase().includes(t.toLowerCase()))
+    );
+
+  let hits = pick(terms);
+  if (hits.length === 0) {
+    hits = sentences.filter((s) => !localCheck(s, rating).safe);
+  }
+  return [...new Set(hits.map((s) => s.trim()).filter(Boolean))].slice(0, 6);
+}
+
+/**
+ * Re-runs OpenAI moderation on each sentence so we highlight only the line(s)
+ * that actually fail PG/G — not innocent lines that happen to contain words
+ * like "fight" or "love" that PG allows.
+ */
+async function findProblemSnippetsOpenAi(
+  text: string,
+  rating: Rating
+): Promise<string[]> {
+  const sentences = splitSentences(text);
+  if (sentences.length === 0) return text.trim() ? [text.trim()] : [];
+  if (!OPENAI_API_KEY) return findProblemSnippetsLocal(text, rating);
+
+  try {
+    const client = new OpenAI({ apiKey: OPENAI_API_KEY });
+    const result = await client.moderations.create({
+      model: "omni-moderation-latest",
+      input: sentences.length === 1 ? sentences[0] : sentences,
+    });
+    const items = result.results;
+    const hits: string[] = [];
+    // Track the highest-scoring sentence when the whole story fails but no
+    // single line crosses the threshold on its own.
+    let topIdx = -1;
+    let topScore = 0;
+
+    for (let i = 0; i < sentences.length; i++) {
+      const item = items[i] as unknown as ModerationItem;
+      if (!item) continue;
+      const { blocked } = evaluateOpenAi(item, rating);
+      if (blocked) {
+        hits.push(sentences[i]);
+        continue;
+      }
+      const policy = OPENAI_POLICY[rating];
+      if (policy.mode === "threshold") {
+        for (const [, score] of Object.entries(item.category_scores || {})) {
+          if (score > topScore) {
+            topScore = score;
+            topIdx = i;
+          }
+        }
+      }
+    }
+
+    if (hits.length > 0) {
+      return [...new Set(hits.map((s) => s.trim()).filter(Boolean))].slice(0, 6);
+    }
+    if (topIdx >= 0) return [sentences[topIdx].trim()];
+  } catch (err) {
+    console.error("Per-sentence moderation failed:", err);
+  }
+  return findProblemSnippetsLocal(text, rating);
+}
+
+function withSnippetsLocal(
+  result: Omit<ModerationResult, "snippets">,
+  text: string,
+  rating: Rating
+): ModerationResult {
+  if (result.safe) return { ...result, snippets: [] };
+  return {
+    ...result,
+    snippets: findProblemSnippetsLocal(text, rating),
+  };
+}
+
+async function withSnippetsOpenAi(
+  result: Omit<ModerationResult, "snippets">,
+  text: string,
+  rating: Rating
+): Promise<ModerationResult> {
+  if (result.safe) return { ...result, snippets: [] };
+  const snippets = await findProblemSnippetsOpenAi(text, rating);
+  return { ...result, snippets };
+}
 // Patterns are labeled by severity so each rating can choose what to block.
 const LOCAL_PATTERNS: { label: string; regex: RegExp }[] = [
   {
@@ -176,12 +345,17 @@ function localCheck(text: string, rating: Rating): ModerationResult {
   for (const { label, regex } of LOCAL_PATTERNS) {
     if (block.has(label) && regex.test(text)) categories.push(label);
   }
-  return {
-    safe: categories.length === 0,
-    categories,
-    kidMessage: categories.length === 0 ? "" : FRIENDLY_BLOCK_MESSAGE,
-    flaggedTerms: categories.length === 0 ? [] : findFlaggedTerms(text, block),
-  };
+  return withSnippetsLocal(
+    {
+      safe: categories.length === 0,
+      categories,
+      kidMessage: categories.length === 0 ? "" : FRIENDLY_BLOCK_MESSAGE,
+      flaggedTerms: categories.length === 0 ? [] : findFlaggedTerms(text, block),
+      reasons: categories.length === 0 ? [] : friendlyReasons(categories),
+    },
+    text,
+    rating
+  );
 }
 
 type ModerationItem = {
@@ -241,13 +415,18 @@ export async function moderateText(
     const item = result.results[0] as unknown as ModerationItem;
     const { blocked, categories } = evaluateOpenAi(item, rating);
     if (blocked)
-      return {
-        safe: false,
-        categories,
-        kidMessage: FRIENDLY_BLOCK_MESSAGE,
-        // Best-effort: surface any matching words as hints (scan all patterns).
-        flaggedTerms: findFlaggedTerms(text),
-      };
+      return withSnippetsOpenAi(
+        {
+          safe: false,
+          categories,
+          kidMessage: FRIENDLY_BLOCK_MESSAGE,
+          // Only words this rating blocks — PG must not flag allowed words like "fight".
+          flaggedTerms: findFlaggedTerms(text, LOCAL_BLOCK[rating]),
+          reasons: friendlyReasons(categories),
+        },
+        text,
+        rating
+      );
     return { safe: true, categories: [], kidMessage: "" };
   } catch (err) {
     console.error("OpenAI moderation failed, using local filter only:", err);

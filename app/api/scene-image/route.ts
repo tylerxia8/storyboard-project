@@ -19,7 +19,13 @@ export async function POST(req: NextRequest) {
 
     const check = await moderateText(description, rating);
     if (!check.safe) {
-      return NextResponse.json({ blocked: true, message: check.kidMessage });
+      return NextResponse.json({
+        blocked: true,
+        message: check.kidMessage,
+        terms: check.flaggedTerms ?? [],
+        reasons: check.reasons ?? [],
+        snippets: check.snippets ?? [],
+      });
     }
 
     const image = await generateSceneImage(

@@ -17,7 +17,13 @@ export async function POST(req: NextRequest) {
     // Don't coach on unsafe content; gently redirect instead.
     const check = await moderateText(story, rating);
     if (!check.safe) {
-      return NextResponse.json({ blocked: true, message: check.kidMessage });
+      return NextResponse.json({
+        blocked: true,
+        message: check.kidMessage,
+        terms: check.flaggedTerms ?? [],
+        reasons: check.reasons ?? [],
+        snippets: check.snippets ?? [],
+      });
     }
 
     const feedback = await getFeedback(story, rating);

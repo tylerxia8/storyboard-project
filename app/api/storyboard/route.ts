@@ -33,6 +33,8 @@ export async function POST(req: NextRequest) {
         blocked: true,
         message: inputCheck.kidMessage,
         terms: inputCheck.flaggedTerms ?? [],
+        reasons: inputCheck.reasons ?? [],
+        snippets: inputCheck.snippets ?? [],
       });
     }
 
@@ -49,6 +51,8 @@ export async function POST(req: NextRequest) {
         blocked: true,
         message: outputCheck.kidMessage,
         terms: outputCheck.flaggedTerms ?? [],
+        reasons: outputCheck.reasons ?? [],
+        snippets: outputCheck.snippets ?? [],
       });
     }
 

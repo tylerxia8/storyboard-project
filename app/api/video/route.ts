@@ -60,6 +60,8 @@ export async function POST(req: NextRequest) {
         blocked: true,
         message: check.kidMessage,
         terms: check.flaggedTerms ?? [],
+        reasons: check.reasons ?? [],
+        snippets: check.snippets ?? [],
       });
     }
 
