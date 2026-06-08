@@ -18,6 +18,7 @@ import { ANIMATION_STYLES, RATINGS } from "@/lib/types";
 import SceneCard from "./components/SceneCard";
 import MoviePlayer from "./components/MoviePlayer";
 import StoryboardCard from "./components/StoryboardCard";
+import NextScenePanel from "./components/NextScenePanel";
 import SpeakButton from "./components/SpeakButton";
 import VoicePicker from "./components/VoicePicker";
 import CharacterVoices from "./components/CharacterVoices";
@@ -100,6 +101,8 @@ export default function Home() {
   );
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Index of the storyboard panel currently being dragged to reorder.
+  const dragSrcRef = useRef<number | null>(null);
   const ratingRef = useRef<Rating>(rating);
   const skipDraftSave = useRef(true);
   const editorRef = useRef<HTMLTextAreaElement>(null);
@@ -384,21 +387,26 @@ export default function Home() {
     );
   }
 
-  function addScene() {
+  // Adds a new scene (optionally pre-filled from the "next scene" panel) and,
+  // when it has a description, immediately draws it so the idea comes alive.
+  function addScene(description = "") {
+    if (!storyboard) return;
     clearBanners();
-    setStoryboard((prev) => {
-      if (!prev) return prev;
-      const n = prev.scenes.length;
-      const newScene: StoryboardScene = {
-        id: `panel-extra-${Date.now()}`,
-        title: `Scene ${n + 1}`,
-        description: "",
-        imageUrl: null,
-        palette: EXTRA_PALETTES[n % EXTRA_PALETTES.length],
-        mock: prev.mock,
-      };
-      return { ...prev, scenes: [...prev.scenes, newScene] };
-    });
+    const n = storyboard.scenes.length;
+    const newScene: StoryboardScene = {
+      id: `panel-extra-${Date.now()}`,
+      title: `Scene ${n + 1}`,
+      description,
+      imageUrl: null,
+      palette: EXTRA_PALETTES[n % EXTRA_PALETTES.length],
+      mock: storyboard.mock,
+    };
+    setStoryboard((prev) =>
+      prev ? { ...prev, scenes: [...prev.scenes, newScene] } : prev
+    );
+    if (description.trim()) {
+      void redrawScene(newScene);
+    }
   }
 
   function removeScene(id: string) {
@@ -409,6 +417,18 @@ export default function Home() {
       const next = { ...r };
       delete next[id];
       return next;
+    });
+  }
+
+  // Moves a scene from one position to another (drag-and-drop or the arrows).
+  function moveScene(from: number, to: number) {
+    setStoryboard((prev) => {
+      if (!prev) return prev;
+      if (to < 0 || to >= prev.scenes.length || from === to) return prev;
+      const scenes = [...prev.scenes];
+      const [moved] = scenes.splice(from, 1);
+      scenes.splice(to, 0, moved);
+      return { ...prev, scenes };
     });
   }
 
@@ -1015,8 +1035,8 @@ export default function Home() {
                     </p>
                   ) : (
                     <p className="mt-1 text-xs text-purple-500">
-                      Edit each scene and redraw until you love it, then make the
-                      video.
+                      Edit each scene and redraw until you love it. Drag the ⠿
+                      handle or tap ⬆️⬇️ to reorder, then make the video.
                     </p>
                   )}
                 </div>
@@ -1044,15 +1064,28 @@ export default function Home() {
                         ? () => removeScene(scene.id)
                         : undefined
                     }
+                    onMoveUp={i > 0 ? () => moveScene(i, i - 1) : undefined}
+                    onMoveDown={
+                      i < storyboard.scenes.length - 1
+                        ? () => moveScene(i, i + 1)
+                        : undefined
+                    }
+                    onDragStart={() => {
+                      dragSrcRef.current = i;
+                    }}
+                    onDropHere={() => {
+                      const from = dragSrcRef.current;
+                      dragSrcRef.current = null;
+                      if (from != null) moveScene(from, i);
+                    }}
                   />
                 ))}
 
-                <button
-                  onClick={addScene}
-                  className="rounded-2xl border-2 border-dashed border-purple-300 bg-white/60 px-5 py-3 text-base font-bold text-purple-600 transition hover:border-purple-400 hover:bg-purple-50 active:scale-95"
-                >
-                  ➕ Add another picture
-                </button>
+                {/* Inviting always-present blank panel for the next scene */}
+                <NextScenePanel
+                  index={storyboard.scenes.length}
+                  onAdd={addScene}
+                />
 
                 <button
                   onClick={createVideo}

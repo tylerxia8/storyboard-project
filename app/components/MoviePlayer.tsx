@@ -77,7 +77,8 @@ export default function MoviePlayer({
     return () => {
       clearTimeout(timer);
       ctrlRef.current?.stop();
-      videoRef.current?.pause();
+      const vid = videoRef.current;
+      if (vid) vid.pause();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, index, scenes.length]);

@@ -2,11 +2,7 @@
 // expressive voices, with automatic fallback to the browser's built-in speech
 // (Web Speech API) when no OpenAI key is configured or a request fails.
 
-import {
-  speakSequence,
-  stopSpeaking,
-  voiceForSpeaker,
-} from "./speech";
+import { speakSequence, stopSpeaking, voiceForSpeaker } from "./speech";
 import type { VoiceGender } from "./types";
 
 export type SpeakLine = {

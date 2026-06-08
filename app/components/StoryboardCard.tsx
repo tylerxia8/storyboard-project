@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import type { ScriptLine, StoryboardScene, StyleCharacter } from "@/lib/types";
 import { curiousQuestion } from "@/lib/curiosity";
 import SpeakButton from "./SpeakButton";
@@ -16,6 +16,10 @@ export default function StoryboardCard({
   onChange,
   onRedraw,
   onRemove,
+  onMoveUp,
+  onMoveDown,
+  onDragStart,
+  onDropHere,
 }: {
   scene: StoryboardScene;
   index: number;
@@ -28,8 +32,21 @@ export default function StoryboardCard({
   onRedraw: () => void;
   /** When provided, shows a control to delete this scene from the storyboard. */
   onRemove?: () => void;
+  /** Reorder up/down; undefined hides the control (e.g. at the ends). */
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  /** Drag-to-reorder: fired when this card starts being dragged. */
+  onDragStart?: () => void;
+  /** Drag-to-reorder: fired when another card is dropped onto this one. */
+  onDropHere?: () => void;
 }) {
   const descRef = useRef<HTMLTextAreaElement>(null);
+  // Only allow dragging when started from the grip handle, so selecting text in
+  // the inputs doesn't accidentally start a drag.
+  const [dragReady, setDragReady] = useState(false);
+  const [isOver, setIsOver] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const canDrag = Boolean(onDragStart && onDropHere);
   // Prefer the AI's scene-specific question; fall back to a rich heuristic one.
   const question = scene.question?.trim() || curiousQuestion(scene.description);
 
@@ -41,8 +58,52 @@ export default function StoryboardCard({
   }
 
   return (
-    <div className="animate-pop rounded-3xl bg-white p-3 shadow-lg ring-2 ring-purple-100">
-      <div className="mb-2 flex items-center gap-2 px-1">
+    <div
+      draggable={dragReady}
+      onDragStart={(e) => {
+        if (!dragReady) {
+          e.preventDefault();
+          return;
+        }
+        setIsDragging(true);
+        onDragStart?.();
+      }}
+      onDragEnd={() => {
+        setDragReady(false);
+        setIsDragging(false);
+      }}
+      onDragOver={(e) => {
+        if (canDrag) e.preventDefault();
+      }}
+      onDragEnter={() => {
+        if (canDrag) setIsOver(true);
+      }}
+      onDragLeave={() => setIsOver(false)}
+      onDrop={(e) => {
+        if (!canDrag) return;
+        e.preventDefault();
+        setIsOver(false);
+        onDropHere?.();
+      }}
+      className={`animate-pop rounded-3xl bg-white p-3 shadow-lg transition ${
+        isOver
+          ? "ring-4 ring-purple-400"
+          : "ring-2 ring-purple-100"
+      } ${isDragging ? "opacity-50" : ""}`}
+    >
+      <div className="mb-2 flex items-center gap-1.5 px-1">
+        {canDrag && (
+          <button
+            type="button"
+            aria-label={`Drag to reorder scene ${index + 1}`}
+            title="Drag to reorder"
+            onPointerDown={() => setDragReady(true)}
+            onPointerUp={() => setDragReady(false)}
+            className="shrink-0 cursor-grab select-none px-0.5 text-lg leading-none text-purple-300 transition hover:text-purple-500 active:cursor-grabbing"
+          >
+            ⠿
+          </button>
+        )}
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-purple-500 text-sm font-bold text-white">
           {index + 1}
         </span>
@@ -52,18 +113,44 @@ export default function StoryboardCard({
           className="w-full rounded-lg bg-transparent px-1 text-lg font-semibold text-purple-700 outline-none focus:bg-purple-50"
           aria-label={`Scene ${index + 1} title`}
         />
-        {onRemove && (
-          <button
-            type="button"
-            onClick={onRemove}
-            disabled={redrawing}
-            aria-label={`Remove scene ${index + 1}`}
-            title="Remove this scene"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-gray-400 transition hover:bg-rose-100 hover:text-rose-600 active:scale-95 disabled:opacity-40"
-          >
-            ✕
-          </button>
-        )}
+        <div className="flex shrink-0 items-center gap-0.5">
+          {onMoveUp && (
+            <button
+              type="button"
+              onClick={onMoveUp}
+              disabled={redrawing}
+              aria-label={`Move scene ${index + 1} earlier`}
+              title="Move earlier"
+              className="flex h-7 w-7 items-center justify-center rounded-full text-purple-400 transition hover:bg-purple-100 hover:text-purple-700 active:scale-95 disabled:opacity-40"
+            >
+              ⬆️
+            </button>
+          )}
+          {onMoveDown && (
+            <button
+              type="button"
+              onClick={onMoveDown}
+              disabled={redrawing}
+              aria-label={`Move scene ${index + 1} later`}
+              title="Move later"
+              className="flex h-7 w-7 items-center justify-center rounded-full text-purple-400 transition hover:bg-purple-100 hover:text-purple-700 active:scale-95 disabled:opacity-40"
+            >
+              ⬇️
+            </button>
+          )}
+          {onRemove && (
+            <button
+              type="button"
+              onClick={onRemove}
+              disabled={redrawing}
+              aria-label={`Remove scene ${index + 1}`}
+              title="Remove this scene"
+              className="flex h-7 w-7 items-center justify-center rounded-full text-gray-400 transition hover:bg-rose-100 hover:text-rose-600 active:scale-95 disabled:opacity-40"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Image preview */}

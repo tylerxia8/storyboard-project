@@ -29,15 +29,17 @@ const IMAGE_MODEL =
 // Reference-capable image model: given the character reference sheet + a scene
 // prompt, it redraws the SAME characters/style in a new scene. This is what
 // keeps characters consistent between frames. Set to "" to disable and fall
-// back to text-only consistency. Default: FLUX.1 Kontext [pro].
+// back to text-only consistency. Default: Google Nano Banana 2, which is
+// purpose-built for keeping characters consistent across different scenes.
 const IMAGE_REF_MODEL = (
-  process.env.REPLICATE_IMAGE_REF_MODEL ?? "black-forest-labs/flux-kontext-pro"
+  process.env.REPLICATE_IMAGE_REF_MODEL ?? "google/nano-banana-2"
 ).trim();
-// The input field the reference model uses for the source image. FLUX Kontext
-// uses "input_image" (single); models like google/nano-banana use "image_input"
-// (an array — set REPLICATE_IMAGE_REF_KEY_ARRAY=true).
-const IMAGE_REF_KEY = process.env.REPLICATE_IMAGE_REF_KEY || "input_image";
-const IMAGE_REF_KEY_ARRAY = process.env.REPLICATE_IMAGE_REF_KEY_ARRAY === "true";
+// The input field the reference model uses for the source image(s). Nano Banana
+// uses "image_input" (an array). FLUX Kontext uses "input_image" (single) — for
+// that, set REPLICATE_IMAGE_REF_KEY=input_image and _ARRAY=false.
+const IMAGE_REF_KEY = process.env.REPLICATE_IMAGE_REF_KEY || "image_input";
+const IMAGE_REF_KEY_ARRAY =
+  (process.env.REPLICATE_IMAGE_REF_KEY_ARRAY ?? "true") === "true";
 // "i2v" (default) animates the approved storyboard image so the video matches
 // the storyboard exactly. Set REPLICATE_VIDEO_MODE=t2v for plain text-to-video.
 const VIDEO_MODE = process.env.REPLICATE_VIDEO_MODE || "i2v";
@@ -456,16 +458,22 @@ function buildReferencedScenePrompt(
   description: string,
   styleGuide?: StyleGuide
 ): string {
-  const names =
+  // Anchor identity with BOTH the reference image and each character's locked
+  // textual look, which together keep them consistent across very different
+  // scenes far better than either signal alone.
+  const cast =
     styleGuide && styleGuide.characters.length > 0
-      ? styleGuide.characters.map((c) => c.name).join(", ")
+      ? styleGuide.characters.map((c) => `${c.name} (${c.look})`).join("; ")
       : "the characters";
-  const style = styleGuide?.artStyle ? ` Art style: ${styleGuide.artStyle}.` : "";
+  const style = styleGuide?.artStyle
+    ? ` Keep the art style identical: ${styleGuide.artStyle}.`
+    : "";
   return (
-    `Using the same characters (${names}) from the reference image — keeping ` +
-    `their faces, hair, colors, outfits, and art style EXACTLY the same — ` +
-    `draw a brand-new storyboard scene: ${description}. Only change the action, ` +
-    `poses, camera angle, and setting; do not change how the characters look.${style}`
+    `Use the SAME characters from the reference image, keeping each one's face, ` +
+    `hair, body, skin tone, colors, and outfit EXACTLY identical. The ` +
+    `characters are: ${cast}. Create a brand-new storyboard scene showing: ` +
+    `${description}. Only change the action, poses, expressions, camera angle, ` +
+    `and setting — never change how any character looks.${style}`
   );
 }
 
