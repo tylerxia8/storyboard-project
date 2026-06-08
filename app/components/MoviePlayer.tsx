@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Scene, StyleCharacter } from "@/lib/types";
 import { genderForSpeaker } from "@/lib/speech";
-import { playLines, type SpeechController } from "@/lib/tts";
+import { playLines, voiceOverrideFor, type SpeechController } from "@/lib/tts";
 
 // Minimum time to linger on a scene even if there are no spoken lines, so the
 // movie doesn't flash by. Scenes with dialogue stay until the lines finish.
@@ -15,11 +15,14 @@ export default function MoviePlayer({
   title,
   scenes,
   characters = [],
+  voiceOverrides,
   onClose,
 }: {
   title: string;
   scenes: Scene[];
   characters?: StyleCharacter[];
+  /** name (lowercased) -> chosen voice id for character voices. */
+  voiceOverrides?: Record<string, string>;
   onClose: () => void;
 }) {
   const [index, setIndex] = useState(0);
@@ -63,6 +66,7 @@ export default function MoviePlayer({
           text: l.line,
           speaker: l.speaker,
           gender: genderForSpeaker(l.speaker, characters),
+          voice: voiceOverrideFor(l.speaker, voiceOverrides),
         })),
         finish
       );

@@ -20,6 +20,8 @@ import MoviePlayer from "./components/MoviePlayer";
 import StoryboardCard from "./components/StoryboardCard";
 import SpeakButton from "./components/SpeakButton";
 import VoicePicker from "./components/VoicePicker";
+import CharacterVoices from "./components/CharacterVoices";
+import { voiceOverrideFor } from "@/lib/tts";
 import WritingChecklist from "./components/WritingChecklist";
 import WordBoosters from "./components/WordBoosters";
 import DictateButton from "./components/DictateButton";
@@ -92,6 +94,10 @@ export default function Home() {
   const [savedToast, setSavedToast] = useState(false);
   const [savedOpen, setSavedOpen] = useState(false);
   const [showPlayer, setShowPlayer] = useState(false);
+  // Per-character voice picks (name lowercased -> voice id). Empty = auto.
+  const [voiceOverrides, setVoiceOverrides] = useState<Record<string, string>>(
+    {}
+  );
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const ratingRef = useRef<Rating>(rating);
@@ -135,7 +141,32 @@ export default function Home() {
     } catch {
       // ignore corrupted storage
     }
+    try {
+      const rawVoices = localStorage.getItem("storyStudioVoices");
+      if (rawVoices) setVoiceOverrides(JSON.parse(rawVoices) as Record<string, string>);
+    } catch {
+      // ignore corrupted storage
+    }
   }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("storyStudioVoices", JSON.stringify(voiceOverrides));
+    } catch {
+      // ignore quota errors
+    }
+  }, [voiceOverrides]);
+
+  // Set (or clear, when voiceId is empty) a character's chosen voice.
+  function setVoice(name: string, voiceId: string) {
+    const key = name.trim().toLowerCase();
+    setVoiceOverrides((prev) => {
+      const next = { ...prev };
+      if (voiceId) next[key] = voiceId;
+      else delete next[key];
+      return next;
+    });
+  }
 
   useEffect(() => {
     ratingRef.current = rating;
@@ -544,7 +575,12 @@ export default function Home() {
                 {story.trim() && (
                   <>
                     <VoicePicker />
-                    <SpeakButton text={story} label="Read aloud" />
+                    <SpeakButton
+                      text={story}
+                      label="Read aloud"
+                      speaker="Narrator"
+                      voice={voiceOverrideFor("Narrator", voiceOverrides)}
+                    />
                   </>
                 )}
                 <span className="rounded-full bg-purple-100 px-3 py-1 text-sm font-medium text-purple-700">
@@ -880,12 +916,20 @@ export default function Home() {
                 >
                   ▶️ Play whole movie
                 </button>
+                {(storyboard?.styleGuide?.characters?.length ?? 0) > 0 && (
+                  <CharacterVoices
+                    characters={storyboard!.styleGuide.characters}
+                    overrides={voiceOverrides}
+                    onChange={setVoice}
+                  />
+                )}
                 {movie.scenes.map((scene, i) => (
                   <SceneCard
                     key={scene.id}
                     scene={scene}
                     index={i}
                     characters={storyboard?.styleGuide?.characters ?? []}
+                    voiceOverrides={voiceOverrides}
                   />
                 ))}
                 <p className="rounded-2xl bg-purple-50 p-3 text-center text-sm text-purple-600">
@@ -977,6 +1021,14 @@ export default function Home() {
                   )}
                 </div>
 
+                {(storyboard.styleGuide?.characters?.length ?? 0) > 0 && (
+                  <CharacterVoices
+                    characters={storyboard.styleGuide.characters}
+                    overrides={voiceOverrides}
+                    onChange={setVoice}
+                  />
+                )}
+
                 {storyboard.scenes.map((scene, i) => (
                   <StoryboardCard
                     key={scene.id}
@@ -984,6 +1036,7 @@ export default function Home() {
                     index={i}
                     redrawing={Boolean(redrawing[scene.id])}
                     characters={storyboard.styleGuide?.characters ?? []}
+                    voiceOverrides={voiceOverrides}
                     onChange={(patch) => updateScene(scene.id, patch)}
                     onRedraw={() => redrawScene(scene)}
                     onRemove={
@@ -1019,6 +1072,7 @@ export default function Home() {
           title={movie.title}
           scenes={movie.scenes}
           characters={storyboard?.styleGuide?.characters ?? []}
+          voiceOverrides={voiceOverrides}
           onClose={() => setShowPlayer(false)}
         />
       )}

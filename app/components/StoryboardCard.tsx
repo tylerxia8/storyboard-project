@@ -5,12 +5,14 @@ import type { ScriptLine, StoryboardScene, StyleCharacter } from "@/lib/types";
 import { curiousQuestion } from "@/lib/curiosity";
 import SpeakButton from "./SpeakButton";
 import ScriptEditor from "./ScriptEditor";
+import { voiceOverrideFor } from "@/lib/tts";
 
 export default function StoryboardCard({
   scene,
   index,
   redrawing,
   characters,
+  voiceOverrides,
   onChange,
   onRedraw,
   onRemove,
@@ -20,6 +22,8 @@ export default function StoryboardCard({
   redrawing: boolean;
   /** Characters from the story bible, suggested as script speakers. */
   characters: StyleCharacter[];
+  /** name (lowercased) -> chosen voice id, passed to the script preview. */
+  voiceOverrides?: Record<string, string>;
   onChange: (patch: Partial<StoryboardScene>) => void;
   onRedraw: () => void;
   /** When provided, shows a control to delete this scene from the storyboard. */
@@ -131,6 +135,7 @@ export default function StoryboardCard({
       <ScriptEditor
         script={scene.script ?? []}
         characters={characters}
+        voiceOverrides={voiceOverrides}
         onChange={(script: ScriptLine[]) =>
           onChange({ script: script.length > 0 ? script : undefined })
         }
@@ -144,7 +149,7 @@ export default function StoryboardCard({
         >
           {redrawing ? "Drawing..." : "🔄 Redraw this scene"}
         </button>
-        <SpeakButton text={scene.description} label="" className="shrink-0 rounded-xl bg-purple-100 px-3 py-2 text-sm font-semibold text-purple-700 transition hover:bg-purple-200 active:scale-95" />
+        <SpeakButton text={scene.description} label="" speaker="Narrator" voice={voiceOverrideFor("Narrator", voiceOverrides)} className="shrink-0 rounded-xl bg-purple-100 px-3 py-2 text-sm font-semibold text-purple-700 transition hover:bg-purple-200 active:scale-95" />
       </div>
     </div>
   );

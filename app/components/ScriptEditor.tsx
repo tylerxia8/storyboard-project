@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { StyleCharacter, ScriptLine } from "@/lib/types";
 import { genderForSpeaker, speechSupported } from "@/lib/speech";
-import { playLines, type SpeechController } from "@/lib/tts";
+import { playLines, voiceOverrideFor, type SpeechController } from "@/lib/tts";
 
 // Lets a student write the spoken lines for a scene during the storyboard
 // phase. Each line has a speaker (a character) and what they say. The lines are
@@ -11,10 +11,13 @@ import { playLines, type SpeechController } from "@/lib/tts";
 export default function ScriptEditor({
   script,
   characters,
+  voiceOverrides,
   onChange,
 }: {
   script: ScriptLine[];
   characters: StyleCharacter[];
+  /** name (lowercased) -> chosen voice id, so previews use the picked voice. */
+  voiceOverrides?: Record<string, string>;
   onChange: (script: ScriptLine[]) => void;
 }) {
   const [playing, setPlaying] = useState(false);
@@ -57,6 +60,7 @@ export default function ScriptEditor({
         text: l.line,
         speaker: l.speaker,
         gender: genderForSpeaker(l.speaker, characters),
+        voice: voiceOverrideFor(l.speaker, voiceOverrides),
       })),
       () => setPlaying(false)
     );

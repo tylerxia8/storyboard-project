@@ -4,16 +4,19 @@ import { useEffect, useRef, useState } from "react";
 import type { Scene, StyleCharacter } from "@/lib/types";
 import SpeakButton from "./SpeakButton";
 import { genderForSpeaker } from "@/lib/speech";
-import { playLines, type SpeechController } from "@/lib/tts";
+import { playLines, voiceOverrideFor, type SpeechController } from "@/lib/tts";
 
 export default function SceneCard({
   scene,
   index,
   characters = [],
+  voiceOverrides,
 }: {
   scene: Scene;
   index: number;
   characters?: StyleCharacter[];
+  /** name (lowercased) -> chosen voice id for character/narrator voices. */
+  voiceOverrides?: Record<string, string>;
 }) {
   const isReady = scene.status === "succeeded";
   const isFailed = scene.status === "failed";
@@ -41,6 +44,7 @@ export default function SceneCard({
         text: l.line,
         speaker: l.speaker,
         gender: genderForSpeaker(l.speaker, characters),
+        voice: voiceOverrideFor(l.speaker, voiceOverrides),
       })),
       () => setActing(false)
     );
@@ -68,6 +72,8 @@ export default function SceneCard({
             <SpeakButton
               text={scene.narration}
               label=""
+              speaker="Narrator"
+              voice={voiceOverrideFor("Narrator", voiceOverrides)}
               className="rounded-full bg-purple-100 px-2.5 py-1 text-sm font-semibold text-purple-700 transition hover:bg-purple-200 active:scale-95"
             />
           )}

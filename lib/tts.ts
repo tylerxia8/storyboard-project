@@ -13,6 +13,8 @@ export type SpeakLine = {
   text: string;
   speaker: string;
   gender: VoiceGender;
+  /** Explicit OpenAI voice id chosen by the student; overrides the auto pick. */
+  voice?: string;
 };
 
 export type SpeechController = { stop: () => void };
@@ -23,10 +25,39 @@ export const SPEECH_START_EVENT = "storystudio:speakstart";
 // Only one thing speaks at a time across the whole app.
 let activeController: SpeechController | null = null;
 
-// OpenAI voices grouped by perceived gender, so a character's voice matches.
-const FEMALE_VOICES = ["coral", "shimmer", "nova", "sage"];
-const MALE_VOICES = ["onyx", "echo", "ash", "ballad"];
-const NEUTRAL_VOICES = ["alloy", "fable"];
+/** A friendly, pick-from voice a student can choose for a character. */
+export type VoiceOption = { id: string; label: string; gender: VoiceGender };
+
+// The OpenAI gpt-4o-mini-tts voices, with kid-friendly descriptions. Kids can
+// pick any of these for any character if they don't like the auto-chosen one.
+export const VOICE_OPTIONS: VoiceOption[] = [
+  { id: "coral", label: "Coral — bright & cheery", gender: "female" },
+  { id: "nova", label: "Nova — peppy & fun", gender: "female" },
+  { id: "shimmer", label: "Shimmer — soft & gentle", gender: "female" },
+  { id: "sage", label: "Sage — calm & kind", gender: "female" },
+  { id: "ash", label: "Ash — friendly & easygoing", gender: "male" },
+  { id: "echo", label: "Echo — smooth & cool", gender: "male" },
+  { id: "onyx", label: "Onyx — deep & bold", gender: "male" },
+  { id: "ballad", label: "Ballad — warm & dramatic", gender: "male" },
+  { id: "alloy", label: "Alloy — clear & neutral", gender: "neutral" },
+  { id: "fable", label: "Fable — gentle storyteller", gender: "neutral" },
+];
+
+const VOICE_GENDER: Record<string, VoiceGender> = Object.fromEntries(
+  VOICE_OPTIONS.map((v) => [v.id, v.gender])
+);
+
+// Voices grouped by perceived gender, so an auto-picked voice matches a
+// character's gender.
+const FEMALE_VOICES = VOICE_OPTIONS.filter((v) => v.gender === "female").map(
+  (v) => v.id
+);
+const MALE_VOICES = VOICE_OPTIONS.filter((v) => v.gender === "male").map(
+  (v) => v.id
+);
+const NEUTRAL_VOICES = VOICE_OPTIONS.filter((v) => v.gender === "neutral").map(
+  (v) => v.id
+);
 
 function hashString(s: string): number {
   let h = 0;
@@ -45,6 +76,19 @@ function openAiVoiceFor(speaker: string, gender: VoiceGender): string {
         ? FEMALE_VOICES
         : NEUTRAL_VOICES;
   return pool[hashString(name) % pool.length];
+}
+
+/**
+ * Looks up a student-chosen voice id for a speaker (case-insensitive by name).
+ * Returns undefined when there's no override, so the auto voice is used.
+ */
+export function voiceOverrideFor(
+  speaker: string,
+  overrides?: Record<string, string>
+): string | undefined {
+  if (!overrides) return undefined;
+  const v = overrides[(speaker || "").trim().toLowerCase()];
+  return v && v.length > 0 ? v : undefined;
 }
 
 /** Steers the delivery toward a warm, kid-movie performance. */
@@ -143,13 +187,17 @@ export function playLines(
     let urls: string[];
     try {
       urls = await Promise.all(
-        lines.map((l) =>
-          fetchLineAudio(
+        lines.map((l) => {
+          const voice = l.voice || openAiVoiceFor(l.speaker, l.gender);
+          // When a voice was hand-picked, steer the delivery by THAT voice's
+          // gender so the instructions don't fight the chosen voice.
+          const gender = l.voice ? VOICE_GENDER[l.voice] ?? l.gender : l.gender;
+          return fetchLineAudio(
             l.text,
-            openAiVoiceFor(l.speaker, l.gender),
-            instructionsFor(l.gender, l.speaker)
-          )
-        )
+            voice,
+            instructionsFor(gender, l.speaker)
+          );
+        })
       );
     } catch {
       // No key / network / API error → use the browser voice instead.

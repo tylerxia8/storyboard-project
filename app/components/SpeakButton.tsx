@@ -10,6 +10,7 @@ export default function SpeakButton({
   className = "",
   speaker = "Narrator",
   gender = "neutral",
+  voice,
 }: {
   text: string;
   label?: string;
@@ -17,6 +18,8 @@ export default function SpeakButton({
   /** Who is speaking — used to pick a matching TTS voice. */
   speaker?: string;
   gender?: VoiceGender;
+  /** Explicit voice id chosen by the student; overrides the auto pick. */
+  voice?: string;
 }) {
   const [speaking, setSpeaking] = useState(false);
   const ctrlRef = useRef<SpeechController | null>(null);
@@ -42,7 +45,7 @@ export default function SpeakButton({
     }
     if (!text.trim()) return;
     // playLines() stops any other audio and broadcasts SPEECH_START_EVENT.
-    ctrlRef.current = playLines([{ text, speaker, gender }], () =>
+    ctrlRef.current = playLines([{ text, speaker, gender, voice }], () =>
       setSpeaking(false)
     );
     setSpeaking(true);
